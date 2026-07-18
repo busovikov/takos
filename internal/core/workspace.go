@@ -105,7 +105,9 @@ stages:
 transitions:
   - { from: backlog,        to: refinement,     manual: true }   # pull into a sprint
   - { from: refinement,     to: planning,       manual: true }
+  - { from: planning,       to: refinement,     manual: true }   # step back
   - { from: planning,       to: implementation, manual: true }
+  - { from: implementation, to: planning,       manual: true }   # step back
   - { from: implementation, to: review,         manual: true }
   - { from: review,         to: implementation, manual: false }  # auto rework after triage
   - { from: review,         to: done,           manual: false }  # auto after triage

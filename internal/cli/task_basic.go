@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/busovikov/takos/internal/core"
+	"github.com/busovikov/takos/internal/tui"
 )
 
 func newTaskInitCmd() *cobra.Command {
@@ -73,16 +75,25 @@ func newTaskCreateCmd() *cobra.Command {
 }
 
 func newTaskListCmd() *cobra.Command {
-	var jsonOut, backlog, all bool
+	var jsonOut, backlog, all, plain bool
 	var stage string
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List tasks (active sprint; --backlog, --all)",
+		Short: "List tasks (interactive board in a TTY; --plain for a table)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := openWS()
 			if err != nil {
 				return err
+			}
+			// A TTY without machine-output flags opens the interactive board.
+			if !plain && !jsonOut && !backlog && stage == "" &&
+				term.IsTerminal(int(os.Stdout.Fd())) {
+				repo := ""
+				if !all {
+					repo = currentRepo()
+				}
+				return tui.Run(ws, repo)
 			}
 			rows, err := collectRows(ws)
 			if err != nil {
@@ -121,9 +132,7 @@ func newTaskListCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&backlog, "backlog", false, "show the backlog")
 	cmd.Flags().BoolVar(&all, "all", false, "tasks of every repository")
 	cmd.Flags().StringVar(&stage, "stage", "", "filter by stage")
-	// --plain is accepted for symmetry with the TUI mode (A4); output is
-	// always plain for now.
-	cmd.Flags().Bool("plain", false, "plain output without the interactive UI")
+	cmd.Flags().BoolVar(&plain, "plain", false, "plain table instead of the interactive board")
 	return cmd
 }
 
