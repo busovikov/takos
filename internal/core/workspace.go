@@ -38,7 +38,7 @@ func DefaultRoot() string {
 func Open(root string) (*Workspace, error) {
 	wf, err := LoadWorkflow(root)
 	if os.IsNotExist(err) {
-		return nil, fmt.Errorf("workspace трекера не найден (%s)\nначни так: takos task init [--workspace DIR]", root)
+		return nil, fmt.Errorf("tracker workspace not found (%s)\nget started: takos task init [--workspace DIR]", root)
 	}
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func Init(root string) (*Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Пара спринтов: активный и следующий.
+	// The active + next sprint pair.
 	if _, err := ws.ActiveSprint(); err != nil {
 		if _, err := ws.CreateSprint(SprintActive, time.Now()); err != nil {
 			return nil, err
@@ -103,58 +103,62 @@ stages:
   - id: done
 
 transitions:
-  - { from: backlog,        to: refinement,     manual: true }   # взять в спринт
+  - { from: backlog,        to: refinement,     manual: true }   # pull into a sprint
   - { from: refinement,     to: planning,       manual: true }
   - { from: planning,       to: implementation, manual: true }
   - { from: implementation, to: review,         manual: true }
-  - { from: review,         to: implementation, manual: false }  # автодоработка по триажу
-  - { from: review,         to: done,           manual: false }  # авто по триажу
+  - { from: review,         to: implementation, manual: false }  # auto rework after triage
+  - { from: review,         to: done,           manual: false }  # auto after triage
 
 roles:
   context:
     agent: claude-code
     permissionMode: safe
     prompt: |
-      Изучи репозиторий {{task.repo}} в контексте задачи {{task.id}} «{{task.title}}».
-      Прочитай {{task.dir}}/task.md (Objective). Дополни task.md секцией "## Context":
-      где в коде лежит относящееся к задаче, какие есть ограничения. Код не менять.
+      Study the repository {{task.repo}} in the context of task {{task.id}}
+      "{{task.title}}". Read {{task.dir}}/task.md (Objective). Add a
+      "## Context" section to task.md: where the relevant code lives and
+      which constraints apply. Do not modify any code.
   planner:
     agent: claude-code
     permissionMode: safe
     prompt: |
-      Ты планируешь задачу {{task.id}} «{{task.title}}».
-      Прочитай {{task.dir}}/task.md (Objective, Context) и {{task.dir}}/plan-hand-off.md,
-      если он есть (решения прошлых сессий — не пересматривай их без причины).
-      Составь пошаговый план и запиши в {{task.dir}}/plan.md. Код не менять. {{promptExtra}}
+      You are planning task {{task.id}} "{{task.title}}".
+      Read {{task.dir}}/task.md (Objective, Context) and, if present,
+      {{task.dir}}/plan-hand-off.md (decisions from previous sessions — do
+      not revisit them without a reason). Write a step-by-step plan to
+      {{task.dir}}/plan.md. Do not modify any code. {{promptExtra}}
     outputs: [plan.md]
   executor:
     agent: claude-code
     permissionMode: auto
     prompt: |
-      Реализуй задачу {{task.id}} по плану {{task.dir}}/plan.md.
-      Сначала прочитай {{task.dir}}/hand-off.md (итог прошлой работы, секция «Из ревью»).
-      Гоняй тесты. {{promptExtra}}
+      Implement task {{task.id}} following {{task.dir}}/plan.md.
+      First read {{task.dir}}/hand-off.md (previous progress, the
+      "From review" section). Run the tests. {{promptExtra}}
   handover:
     agent: claude-code
     permissionMode: auto
     prompt: |
-      Передай задачу {{task.id}} в ревью. 1) Закоммить изменения в {{task.repo}}
-      с заголовком "{{task.id}}: {{task.title}}" и подробным описанием в теле.
-      2) Дополни {{task.dir}}/task.md секциями "## What is done", "## Docs",
-      "## Testing" по фактически сделанному.
+      Hand task {{task.id}} over to review. 1) Commit the changes in
+      {{task.repo}} titled "{{task.id}}: {{task.title}}" with a detailed
+      body. 2) Update {{task.dir}}/task.md with "## What is done",
+      "## Docs" and "## Testing" sections reflecting the actual work.
   reviewer:
     agent: claude-code
     permissionMode: safe
     prompt: |
-      Сделай ревью изменений задачи {{task.id}} в {{task.repo}}.
-      Каждое замечание запиши в {{task.dir}}/reviews/{{round}} блоком
-      "## [R<n>] <заголовок> — open" с описанием и диффом. Код не менять.
+      Review the changes of task {{task.id}} in {{task.repo}}.
+      Write every finding to {{task.dir}}/reviews/{{round}} as a block
+      "## [R<n>] <title> — open" with a description and a diff. Do not
+      modify any code.
   summarizer:
     agent: claude-code
     permissionMode: safe
     prompt: |
-      Сожми материалы сессий задачи {{task.id}} в hand-off файл {{target}}.
-      Секции по шаблону роли. Кратко, только проверенные факты.
+      Condense the session materials of task {{task.id}} into the hand-off
+      file {{target}}. Use the role's section template. Be brief; verified
+      facts only.
 
 rules:
   - id: context-on-planning

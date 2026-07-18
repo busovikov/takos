@@ -19,7 +19,7 @@ func SplitFrontmatter(doc []byte) (meta, body []byte, err error) {
 	rest := doc[len(fmDelim):]
 	end := bytes.Index(rest, []byte("\n---"))
 	if end < 0 {
-		return nil, nil, fmt.Errorf("frontmatter не закрыт разделителем ---")
+		return nil, nil, fmt.Errorf("frontmatter is not closed with a --- delimiter")
 	}
 	meta = rest[:end+1] // keep the trailing newline for YAML
 	body = rest[end+1:]

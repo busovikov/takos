@@ -5,10 +5,10 @@ import "github.com/spf13/cobra"
 func newTaskCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "task",
-		Short: "Трекер задач: доска, создание, перемещение, ревью, спринты",
+		Short: "Task tracker: board, create, move, review, sprints",
 	}
 	cmd.PersistentFlags().StringVar(&workspaceFlag, "workspace", "",
-		"путь к workspace (дефолт: $TAKOS_WORKSPACE или ~/.takos/workspace)")
+		"workspace path (default: $TAKOS_WORKSPACE or ~/.takos/workspace)")
 	cmd.AddCommand(
 		newTaskInitCmd(),
 		newTaskCreateCmd(),

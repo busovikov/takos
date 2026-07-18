@@ -28,23 +28,23 @@ func TestInitScaffold(t *testing.T) {
 		t.Fatal(err)
 	}
 	if active.Name != "sprint-1" || next.Name != "sprint-2" {
-		t.Errorf("спринты: %s / %s", active.Name, next.Name)
+		t.Errorf("sprints: %s / %s", active.Name, next.Name)
 	}
 	if active.Meta.EndsAt.Sub(active.Meta.StartedAt) != 14*24*time.Hour {
-		t.Errorf("длина спринта: %v", active.Meta.EndsAt.Sub(active.Meta.StartedAt))
+		t.Errorf("sprint length: %v", active.Meta.EndsAt.Sub(active.Meta.StartedAt))
 	}
 	if _, err := os.Stat(filepath.Join(active.Dir, "3-implementation")); err != nil {
-		t.Error("нет стадийной папки 3-implementation")
+		t.Error("stage folder 3-implementation is missing")
 	}
-	// Идемпотентность.
+	// Idempotency.
 	if _, err := Init(ws.Root); err != nil {
-		t.Fatalf("повторный Init: %v", err)
+		t.Fatalf("second Init: %v", err)
 	}
 }
 
 func TestCreateTaskAndSymlink(t *testing.T) {
 	ws := newTestWS(t)
-	task, pos, err := ws.CreateTask("Добавить экспорт отчётов в CSV", CreateOpts{Repo: "/tmp/r"})
+	task, pos, err := ws.CreateTask("Add CSV report export", CreateOpts{Repo: "/tmp/r"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,12 +52,12 @@ func TestCreateTaskAndSymlink(t *testing.T) {
 		t.Errorf("id = %s", task.Meta.ID)
 	}
 	if pos.Stage != "refinement" || pos.Area != AreaSprint {
-		t.Errorf("позиция: %+v", pos)
+		t.Errorf("position: %+v", pos)
 	}
-	// Хендлер — симлинк, разрешающийся в папку задачи.
+	// The handler is a symlink resolving to the task folder.
 	fi, err := os.Lstat(pos.Path)
 	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("хендлер не симлинк: %v %v", fi, err)
+		t.Fatalf("handler is not a symlink: %v %v", fi, err)
 	}
 	resolved, err := filepath.EvalSymlinks(pos.Path)
 	if err != nil {
@@ -65,20 +65,20 @@ func TestCreateTaskAndSymlink(t *testing.T) {
 	}
 	wantDir, _ := filepath.EvalSymlinks(task.Dir)
 	if resolved != wantDir {
-		t.Errorf("симлинк ведёт в %s, ожидалось %s", resolved, wantDir)
+		t.Errorf("symlink points at %s, want %s", resolved, wantDir)
 	}
-	// Через симлинк читается task.md.
+	// task.md is readable through the symlink.
 	if _, err := os.Stat(filepath.Join(pos.Path, TaskFile)); err != nil {
-		t.Errorf("task.md через симлинк недоступен: %v", err)
+		t.Errorf("task.md unreachable through the symlink: %v", err)
 	}
 
-	// Вторая задача — в беклог.
-	_, pos2, err := ws.CreateTask("Тёмная тема", CreateOpts{Backlog: true})
+	// A second task goes to the backlog.
+	_, pos2, err := ws.CreateTask("Dark dashboard theme", CreateOpts{Backlog: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if pos2.Stage != Backlog {
-		t.Errorf("позиция беклог-задачи: %+v", pos2)
+		t.Errorf("backlog task position: %+v", pos2)
 	}
 }
 
@@ -90,30 +90,30 @@ func TestMoveHappyPathAndGates(t *testing.T) {
 	}
 	id := task.Meta.ID
 
-	// refinement → planning: scaffold plan.md.
+	// refinement → planning: scaffolds plan.md.
 	if _, err := ws.MoveTask(id, "planning", "user", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(task.Dir, PlanFile)); err != nil {
-		t.Error("plan.md не заскаффолжен при входе в planning")
+		t.Error("plan.md was not scaffolded on entering planning")
 	}
 
-	// planning → implementation закрыт гейтом plan-resolved.
+	// planning → implementation is gated by plan-resolved.
 	if _, err := ws.MoveTask(id, "implementation", "user", ""); err == nil {
-		t.Fatal("переход должен быть закрыт гейтом plan-resolved")
+		t.Fatal("the transition must be closed by the plan-resolved gate")
 	}
 	pos, _ := ws.FindHandler(id)
 	if pos.Stage != "planning" {
-		t.Errorf("после отказа хендлер сместился: %s", pos.Stage)
+		t.Errorf("handler moved despite the refusal: %s", pos.Stage)
 	}
 	events, _ := ReadHistory(task.Dir)
 	for _, e := range events {
 		if e.Verb == "move" && strings.Contains(e.Args, "implementation") {
-			t.Error("отказ записал move в history")
+			t.Error("a refusal wrote a move into history")
 		}
 	}
 
-	// resolve → переход открывается.
+	// resolve → the transition opens.
 	if err := SetCheck(task.Dir, "plan-resolved"); err != nil {
 		t.Fatal(err)
 	}
@@ -121,53 +121,53 @@ func TestMoveHappyPathAndGates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Запрещённый переход (не в whitelist).
+	// A transition absent from the whitelist.
 	if _, err := ws.MoveTask(id, "done", "user", ""); err == nil {
-		t.Fatal("implementation → done не должен быть разрешён")
+		t.Fatal("implementation → done must not be allowed")
 	}
 
-	// implementation → review; review → done руками закрыт (manual: false).
+	// implementation → review; review → done is closed for humans (manual: false).
 	if _, err := ws.MoveTask(id, "review", "user", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ws.MoveTask(id, "done", "user", ""); err == nil {
-		t.Fatal("review → done должен быть только автоматическим")
+		t.Fatal("review → done must be automation-only")
 	}
-	// …а автоматике можно.
+	// …but automation may.
 	if _, err := ws.MoveTask(id, "done", "engine", ""); err != nil {
 		t.Fatal(err)
 	}
 	stage, _ := LastMove(mustHistory(t, task.Dir))
 	if stage != "done" {
-		t.Errorf("итоговая стадия по history: %s", stage)
+		t.Errorf("final stage per history: %s", stage)
 	}
 }
 
 func TestOpenReviewBlocksMoves(t *testing.T) {
 	ws := newTestWS(t)
-	task, _, _ := ws.CreateTask("Задача с ревью", CreateOpts{})
+	task, _, _ := ws.CreateTask("Task with a review", CreateOpts{})
 	id := task.Meta.ID
 	ws.MoveTask(id, "planning", "user", "")
 	SetCheck(task.Dir, "plan-resolved")
 	ws.MoveTask(id, "implementation", "user", "")
 	ws.MoveTask(id, "review", "user", "")
 
-	if _, err := AddComment(task.Dir, id, "Кнопка видна для пустых отчётов"); err != nil {
+	if _, err := AddComment(task.Dir, id, "Export button visible for empty reports"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ws.MoveTask(id, "done", "engine", ""); err == nil {
-		t.Fatal("open-замечание должно блокировать перемещение")
+		t.Fatal("an open finding must block moves")
 	}
 
-	// Триаж: resolve единственного замечания → путь открыт.
+	// Triage: resolving the only finding opens the way.
 	round, path, err := LoadLatestRound(task.Dir)
 	if err != nil || round == nil {
-		t.Fatalf("раунд не найден: %v", err)
+		t.Fatalf("round not found: %v", err)
 	}
 	round.SetStatus("R1", ReviewResolved)
 	SaveRound(path, round)
 	if v, done := round.Verdict(); !done || v != "done" {
-		t.Errorf("вердикт: %s %v", v, done)
+		t.Errorf("verdict: %s %v", v, done)
 	}
 	if _, err := ws.MoveTask(id, "done", "engine", ""); err != nil {
 		t.Fatal(err)
@@ -176,44 +176,44 @@ func TestOpenReviewBlocksMoves(t *testing.T) {
 
 func TestBacklogTakeAndSend(t *testing.T) {
 	ws := newTestWS(t)
-	task, _, _ := ws.CreateTask("Из беклога", CreateOpts{Backlog: true})
+	task, _, _ := ws.CreateTask("From the backlog", CreateOpts{Backlog: true})
 	id := task.Meta.ID
 
-	// backlog → refinement в СЛЕДУЮЩИЙ спринт (take).
+	// backlog → refinement into the NEXT sprint (take).
 	if _, err := ws.MoveTask(id, "refinement", "user", "next"); err != nil {
 		t.Fatal(err)
 	}
 	pos, _ := ws.FindHandler(id)
 	if pos.Sprint != "sprint-2" || pos.Stage != "refinement" {
-		t.Errorf("после take: %+v", pos)
+		t.Errorf("after take: %+v", pos)
 	}
-	// Симлинк валиден на новой глубине.
+	// The symlink is valid at the new depth.
 	if _, err := os.Stat(filepath.Join(pos.Path, TaskFile)); err != nil {
-		t.Errorf("симлинк битый после take: %v", err)
+		t.Errorf("symlink broken after take: %v", err)
 	}
 
-	// Обратно в беклог (b).
+	// Back to the backlog (b).
 	if _, err := ws.MoveTask(id, Backlog, "user", ""); err != nil {
 		t.Fatal(err)
 	}
 	pos, _ = ws.FindHandler(id)
 	if pos.Area != AreaBacklog {
-		t.Errorf("после b: %+v", pos)
+		t.Errorf("after b: %+v", pos)
 	}
 }
 
 func TestCloseActiveSprint(t *testing.T) {
 	ws := newTestWS(t)
-	doneTask, _, _ := ws.CreateTask("Готовая", CreateOpts{})
-	wip, _, _ := ws.CreateTask("Недоделанная", CreateOpts{})
+	doneTask, _, _ := ws.CreateTask("Finished one", CreateOpts{})
+	wip, _, _ := ws.CreateTask("Unfinished one", CreateOpts{})
 
-	// Готовую доводим до done автоматикой.
+	// Drive the first task to done via automation.
 	ws.MoveTask(doneTask.Meta.ID, "planning", "user", "")
 	SetCheck(doneTask.Dir, "plan-resolved")
 	ws.MoveTask(doneTask.Meta.ID, "implementation", "user", "")
 	ws.MoveTask(doneTask.Meta.ID, "review", "user", "")
 	ws.MoveTask(doneTask.Meta.ID, "done", "engine", "")
-	// Недоделанную — в planning.
+	// The unfinished one — to planning.
 	ws.MoveTask(wip.Meta.ID, "planning", "user", "")
 
 	closed, promoted, carried, err := ws.CloseActiveSprint(time.Now())
@@ -224,32 +224,32 @@ func TestCloseActiveSprint(t *testing.T) {
 		t.Errorf("close: %s %s carried=%d", closed, promoted, carried)
 	}
 
-	// Done-задача в архиве, стадия сохранена, симлинк жив.
+	// The done task is archived, stage preserved, symlink alive.
 	pos, err := ws.FindHandler(doneTask.Meta.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if pos.Area != AreaArchive || pos.Stage != "done" {
-		t.Errorf("done-задача: %+v", pos)
+		t.Errorf("done task: %+v", pos)
 	}
 	if _, err := os.Stat(filepath.Join(pos.Path, TaskFile)); err != nil {
-		t.Errorf("симлинк в архиве битый: %v", err)
+		t.Errorf("archived symlink broken: %v", err)
 	}
 
-	// Недоделанная — в новом активном, та же стадия.
+	// The unfinished one is in the new active sprint, same stage.
 	pos, _ = ws.FindHandler(wip.Meta.ID)
 	if pos.Sprint != "sprint-2" || pos.Stage != "planning" {
-		t.Errorf("перенесённая: %+v", pos)
+		t.Errorf("carried task: %+v", pos)
 	}
 	if _, err := os.Stat(filepath.Join(pos.Path, TaskFile)); err != nil {
-		t.Errorf("симлинк перенесённой битый: %v", err)
+		t.Errorf("carried symlink broken: %v", err)
 	}
 
-	// Новый следующий создан, активный один.
+	// A new next sprint exists; exactly one active.
 	active, _ := ws.ActiveSprint()
 	next, _ := ws.NextSprint()
 	if active.Name != "sprint-2" || next.Name != "sprint-3" {
-		t.Errorf("после close: active=%s next=%s", active.Name, next.Name)
+		t.Errorf("after close: active=%s next=%s", active.Name, next.Name)
 	}
 }
 
@@ -258,7 +258,7 @@ func TestSlugify(t *testing.T) {
 		"Fix flaky auth test": "fix-flaky-auth-test",
 		"Добавить экспорт отчётов в CSV": "dobavit-eksport-otchetov-v-csv",
 		"  ---  ": "task",
-		"Очень длинное название задачи которое не влезает в лимит символов слага": "ochen-dlinnoe-nazvanie-zadachi-kotoroe-n",
+		"A very long task title that does not fit into the slug length limit at all": "a-very-long-task-title-that-does-not-fit",
 	}
 	for in, want := range cases {
 		if got := Slugify(in); got != want {
@@ -268,13 +268,13 @@ func TestSlugify(t *testing.T) {
 }
 
 func TestMdSections(t *testing.T) {
-	body := "## Objective\nСтарый текст.\n"
-	body = SetSection(body, "Context", "Найдено в src/x.go")
-	body = SetSection(body, "Objective", "Новый текст.")
-	if got := GetSection(body, "Objective"); got != "Новый текст." {
+	body := "## Objective\nOld text.\n"
+	body = SetSection(body, "Context", "Found in src/x.go")
+	body = SetSection(body, "Objective", "New text.")
+	if got := GetSection(body, "Objective"); got != "New text." {
 		t.Errorf("Objective = %q", got)
 	}
-	if got := GetSection(body, "Context"); got != "Найдено в src/x.go" {
+	if got := GetSection(body, "Context"); got != "Found in src/x.go" {
 		t.Errorf("Context = %q", got)
 	}
 	if got := GetSection(body, "Missing"); got != "" {

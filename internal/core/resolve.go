@@ -10,10 +10,10 @@ import (
 // HandlerPos describes where a task's handler symlink currently lives.
 // The position IS the task's state: nothing else stores stage or sprint.
 type HandlerPos struct {
-	Path   string // абсолютный путь симлинка
+	Path   string // absolute path of the symlink
 	Area   string // backlog | sprint | archive
-	Sprint string // имя спринта (для sprint|archive)
-	Stage  string // id стадии; для беклога — "backlog"
+	Sprint string // sprint name (for sprint|archive)
+	Stage  string // stage id; "backlog" for the backlog
 }
 
 const (
@@ -43,17 +43,17 @@ func stageFromDirName(name string) string {
 // FindTaskDir locates the canonical task folder tasks/<id>-*.
 func (ws *Workspace) FindTaskDir(id string) (string, error) {
 	if !ValidTaskID(id) {
-		return "", fmt.Errorf("некорректный id задачи %q (ожидается T-0001…)", id)
+		return "", fmt.Errorf("invalid task id %q (expected T-0001…)", id)
 	}
 	matches, err := filepath.Glob(filepath.Join(ws.TasksDir(), id+"-*"))
 	if err != nil {
 		return "", err
 	}
 	if len(matches) == 0 {
-		return "", fmt.Errorf("задача %s не найдена", id)
+		return "", fmt.Errorf("task %s not found", id)
 	}
 	if len(matches) > 1 {
-		return "", fmt.Errorf("задача %s: несколько папок в tasks/ — почини руками: %v", id, matches)
+		return "", fmt.Errorf("task %s: multiple folders in tasks/ — fix manually: %v", id, matches)
 	}
 	return matches[0], nil
 }
@@ -84,11 +84,11 @@ func (ws *Workspace) FindHandler(id string) (*HandlerPos, error) {
 
 	switch len(found) {
 	case 0:
-		return nil, fmt.Errorf("хендлер задачи %s не найден (восстановит реконсиляция)", id)
+		return nil, fmt.Errorf("handler of task %s not found (the reconciler will restore it)", id)
 	case 1:
 		return &found[0], nil
 	default:
-		return nil, fmt.Errorf("задача %s: найдено %d хендлеров — нарушен инвариант, чинит реконсиляция", id, len(found))
+		return nil, fmt.Errorf("task %s: %d handlers found — invariant broken, the reconciler will repair it", id, len(found))
 	}
 }
 

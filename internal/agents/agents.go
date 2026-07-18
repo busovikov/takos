@@ -23,7 +23,7 @@ type Spec struct {
 	ID      string
 	Bin     string
 	Install string
-	Models  []string // статический список; динамика (ollama) добавляется при детекции
+	Models  []string // static list; dynamic entries (ollama) are added on detection
 }
 
 type Info struct {
@@ -88,7 +88,7 @@ func ollamaModels() []string {
 	}
 	var models []string
 	for i, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if i == 0 { // заголовок таблицы
+		if i == 0 { // table header
 			continue
 		}
 		if f := strings.Fields(line); len(f) > 0 {

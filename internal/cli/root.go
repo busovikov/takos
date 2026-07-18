@@ -15,7 +15,7 @@ func Execute() error {
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "takos",
-		Short:         "Takos — ФС-нативный трекер задач и оркестратор coding-агентов",
+		Short:         "Takos — a filesystem-native task tracker and coding-agent orchestrator",
 		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,

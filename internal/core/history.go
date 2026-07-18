@@ -11,12 +11,13 @@ import (
 	"time"
 )
 
-// history.log — летопись задачи: строка на событие, фиксированная грамматика
+// history.log is the task's chronicle: one event per line with the fixed
+// grammar
 //
 //	<RFC3339> [<actor>] <verb> <args>
 //
-// Читается человеком, дифается git'ом, парсится одним регэкспом. Позиция
-// хендлера остаётся единственным авторитетом состояния; журнал — история.
+// Human-readable, git-diffable, parsed by a single regexp. The handler
+// position remains the only authority on state; the log is history.
 
 const HistoryFile = "history.log"
 

@@ -36,7 +36,7 @@ func (ws *Workspace) Sprints() ([]SprintInfo, error) {
 		dir := filepath.Join(ws.SprintsDir(), e.Name())
 		meta, err := LoadSprint(dir)
 		if err != nil {
-			continue // спринт без валидного sprint.md чинит реконсиляция
+			continue // a sprint without a valid sprint.md is repaired by the reconciler
 		}
 		out = append(out, SprintInfo{Name: e.Name(), Dir: dir, Meta: *meta})
 	}
@@ -63,7 +63,7 @@ func (ws *Workspace) sprintByStatus(status string) (*SprintInfo, error) {
 			return &sprints[i], nil
 		}
 	}
-	return nil, fmt.Errorf("спринт со статусом %q не найден", status)
+	return nil, fmt.Errorf("no sprint with status %q", status)
 }
 
 // ActiveSprint returns the current active sprint.
@@ -125,14 +125,14 @@ func (ws *Workspace) CloseActiveSprint(now time.Time) (closed, promoted string, 
 	}
 	lastStage := ws.WF.Stages[len(ws.WF.Stages)-1].ID
 
-	// 1. Незакрытые задачи → следующий спринт, та же стадия.
+	// 1. Unfinished tasks → the next sprint, same stage.
 	handlers, err := ws.sprintHandlers(active)
 	if err != nil {
 		return "", "", 0, err
 	}
 	for _, h := range handlers {
 		if h.Stage == lastStage {
-			continue // done остаётся и уедет в архив вместе с папкой
+			continue // done stays and rides into the archive with the folder
 		}
 		destDir := filepath.Join(next.Dir, filepath.Base(filepath.Dir(h.Path)))
 		if err := relinkHandler(h.Path, destDir, ws.TasksDir()); err != nil {
@@ -145,7 +145,7 @@ func (ws *Workspace) CloseActiveSprint(now time.Time) (closed, promoted string, 
 		carried++
 	}
 
-	// 2. Папка спринта целиком в архив (глубина та же — симлинки остаются валидны).
+	// 2. The whole sprint folder goes to the archive (same depth — symlinks stay valid).
 	if err := os.MkdirAll(ws.ArchiveDir(), 0o755); err != nil {
 		return "", "", 0, err
 	}
@@ -153,7 +153,7 @@ func (ws *Workspace) CloseActiveSprint(now time.Time) (closed, promoted string, 
 		return "", "", 0, err
 	}
 
-	// 3. Следующий становится активным, создаётся новый следующий.
+	// 3. The next sprint is promoted to active; a fresh next one is created.
 	days := next.Meta.LengthDays
 	if days <= 0 {
 		days = DefaultSprintDays

@@ -7,12 +7,12 @@ import (
 	"strings"
 )
 
-// Раунд ревью — reviews/R-00N.md. Каждое замечание — блок с заголовком
+// A review round is reviews/R-00N.md. Every finding is a block headed by
 //
-//	## [R2] <заголовок> — <status>
+//	## [R2] <title> — <status>
 //
-// Статус живёт прямо в заголовке блока; вердикт раунда не записывается,
-// а вычисляется из статусов (никакого хрупкого "Verdict: ...").
+// The status lives right in the block heading; the round's verdict is never
+// written down — it is computed from the statuses (no brittle "Verdict: …").
 
 type ReviewStatus string
 
@@ -31,11 +31,11 @@ type ReviewItem struct {
 	ID     string // R1, R2, …
 	Title  string
 	Status ReviewStatus
-	Body   string // всё до следующего блока: описание, файл:строка, дифф
+	Body   string // everything until the next block: description, file:line, diff
 }
 
 type ReviewRound struct {
-	Header string // строки до первого блока (заголовок раунда, коммит)
+	Header string // lines before the first block (round title, commit)
 	Items  []ReviewItem
 }
 
@@ -64,7 +64,7 @@ func ParseReviewRound(doc string) (*ReviewRound, error) {
 			flush()
 			st := ReviewStatus(m[3])
 			if !reviewStatuses[st] {
-				return nil, fmt.Errorf("замечание %s: неизвестный статус %q", m[1], m[3])
+				return nil, fmt.Errorf("finding %s: unknown status %q", m[1], m[3])
 			}
 			cur = &ReviewItem{ID: m[1], Title: m[2], Status: st}
 			continue
@@ -99,7 +99,7 @@ func (r *ReviewRound) Render() string {
 // SetStatus updates one item's status; unknown id or status is an error.
 func (r *ReviewRound) SetStatus(id string, st ReviewStatus) error {
 	if !reviewStatuses[st] {
-		return fmt.Errorf("неизвестный статус %q", st)
+		return fmt.Errorf("unknown status %q", st)
 	}
 	for i := range r.Items {
 		if r.Items[i].ID == id {
@@ -107,7 +107,7 @@ func (r *ReviewRound) SetStatus(id string, st ReviewStatus) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("замечание %s не найдено", id)
+	return fmt.Errorf("finding %s not found", id)
 }
 
 // NextItemID returns the next free item id (R<n+1>).
