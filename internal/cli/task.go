@@ -7,6 +7,24 @@ func newTaskCmd() *cobra.Command {
 		Use:   "task",
 		Short: "Трекер задач: доска, создание, перемещение, ревью, спринты",
 	}
-	// Субкоманды (init, list, create, move, …) появляются в фазе A3.
+	cmd.PersistentFlags().StringVar(&workspaceFlag, "workspace", "",
+		"путь к workspace (дефолт: $TAKOS_WORKSPACE или ~/.takos/workspace)")
+	cmd.AddCommand(
+		newTaskInitCmd(),
+		newTaskCreateCmd(),
+		newTaskListCmd(),
+		newTaskShowCmd(),
+		newTaskHistoryCmd(),
+		newTaskMoveCmd(),
+		newTaskTakeCmd(),
+		newTaskResolveCmd(),
+		newTaskCheckCmd(),
+		newTaskEditCmd(),
+		newTaskReviewCmd(),
+		newTaskCommentCmd(),
+		newTaskSprintCmd(),
+		newTaskWorkflowCmd(),
+		newTaskRoleCmd(),
+	)
 	return cmd
 }
