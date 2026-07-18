@@ -17,16 +17,16 @@ import (
 func newAgentsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "agents",
-		Short: "Обнаруженные CLI агентов: версии и модели",
+		Short: "Detected agent CLIs: versions and models",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf(" %-13s %-22s %-11s %s\n", "АГЕНТ", "ВЕРСИЯ", "СТАТУС", "МОДЕЛИ")
+			fmt.Printf(" %-13s %-22s %-10s %s\n", "AGENT", "VERSION", "STATUS", "MODELS")
 			for _, a := range agents.Detect() {
-				status, extra := "✔ найден", strings.Join(a.Models, " · ")
+				status, extra := "✔ found", strings.Join(a.Models, " · ")
 				if !a.Available {
-					status, extra = "✗ не найден", "установка: "+a.Install
+					status, extra = "✗ missing", "install: "+a.Install
 				}
-				fmt.Printf(" %-13s %-22s %-11s %s\n", a.ID, orDash(a.Version), status, extra)
+				fmt.Printf(" %-13s %-22s %-10s %s\n", a.ID, orDash(a.Version), status, extra)
 			}
 			return nil
 		},
@@ -36,7 +36,7 @@ func newAgentsCmd() *cobra.Command {
 func newTaskRoleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "role",
-		Short: "Назначение агентов на роли workflow",
+		Short: "Agent-to-role assignments of the workflow",
 	}
 	cmd.AddCommand(newRoleListCmd(), newRoleSetCmd())
 	return cmd
@@ -45,7 +45,7 @@ func newTaskRoleCmd() *cobra.Command {
 func newRoleListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "Роли и назначенные агенты/модели",
+		Short: "Roles and their assigned agents/models",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := openWS()
@@ -56,12 +56,12 @@ func newRoleListCmd() *cobra.Command {
 			for _, a := range agents.Detect() {
 				detected[a.ID] = a.Available
 			}
-			fmt.Printf(" %-12s %-13s %-26s %s\n", "РОЛЬ", "АГЕНТ", "МОДЕЛЬ", "")
+			fmt.Printf(" %-12s %-13s %-26s %s\n", "ROLE", "AGENT", "MODEL", "")
 			for _, name := range sortedRoleNames(ws.WF.Roles) {
 				r := ws.WF.Roles[name]
 				note := ""
 				if !detected[r.Agent] {
-					note = "⚠ агент не найден в системе"
+					note = "⚠ agent not found on this system"
 				}
 				fmt.Printf(" %-12s %-13s %-26s %s\n", name, r.Agent, orDash(r.Model), note)
 			}
@@ -92,8 +92,8 @@ func newRoleSetCmd() *cobra.Command {
 	var agent, model string
 	var force bool
 	cmd := &cobra.Command{
-		Use:   "set <роль>",
-		Short: "Назначить агента/модель на роль (пишет в workflow.yaml)",
+		Use:   "set <role>",
+		Short: "Assign an agent/model to a role (writes to workflow.yaml)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := openWS()
@@ -101,35 +101,35 @@ func newRoleSetCmd() *cobra.Command {
 				return err
 			}
 			role := args[0]
-			if _, ok := ws.WF.Roles[role]; !ok {
-				return fmt.Errorf("роль %q не объявлена в workflow.yaml", role)
+			if _, exists := ws.WF.Roles[role]; !exists {
+				return fmt.Errorf("role %q is not declared in workflow.yaml", role)
 			}
 			if agent == "" {
-				return fmt.Errorf("укажи --agent (см. takos agents)")
+				return fmt.Errorf("specify --agent (see takos agents)")
 			}
 			if !force {
 				info, known := agents.ByID(agent)
 				if !known {
-					return fmt.Errorf("агент %q не поддерживается (takos agents)", agent)
+					return fmt.Errorf("agent %q is not supported (takos agents)", agent)
 				}
 				if !info.Available {
-					return fmt.Errorf("агент %q не найден в системе (takos agents; --force чтобы записать для другой машины)", agent)
+					return fmt.Errorf("agent %q not found on this system (takos agents; --force to write it for another machine)", agent)
 				}
 			}
 			if err := setRoleInYAML(ws.Root, role, agent, model); err != nil {
 				return err
 			}
 			if model != "" {
-				ok("%s → %s · %s (записано в workflow.yaml)", role, agent, model)
+				ok("%s → %s · %s (written to workflow.yaml)", role, agent, model)
 			} else {
-				ok("%s → %s (записано в workflow.yaml)", role, agent)
+				ok("%s → %s (written to workflow.yaml)", role, agent)
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&agent, "agent", "", "id агента из takos agents")
-	cmd.Flags().StringVar(&model, "model", "", "модель (например ollama/qwen3-coder:30b)")
-	cmd.Flags().BoolVar(&force, "force", false, "записать, даже если агент не найден")
+	cmd.Flags().StringVar(&agent, "agent", "", "agent id from takos agents")
+	cmd.Flags().StringVar(&model, "model", "", "model (e.g. ollama/qwen3-coder:30b)")
+	cmd.Flags().BoolVar(&force, "force", false, "write even when the agent is missing")
 	return cmd
 }
 
@@ -147,11 +147,11 @@ func setRoleInYAML(root, role, agent, model string) error {
 	}
 	roles := findMapValue(doc.Content[0], "roles")
 	if roles == nil {
-		return fmt.Errorf("в workflow.yaml нет секции roles")
+		return fmt.Errorf("workflow.yaml has no roles section")
 	}
 	roleNode := findMapValue(roles, role)
 	if roleNode == nil {
-		return fmt.Errorf("роль %q не найдена в workflow.yaml", role)
+		return fmt.Errorf("role %q not found in workflow.yaml", role)
 	}
 	setMapValue(roleNode, "agent", agent)
 	if model != "" {
@@ -161,9 +161,9 @@ func setRoleInYAML(root, role, agent, model string) error {
 	if err != nil {
 		return err
 	}
-	// Перед записью убеждаемся, что файл остался валидным.
+	// Make sure the file is still valid before writing it back.
 	if _, err := core.ParseWorkflow(out); err != nil {
-		return fmt.Errorf("правка сделала workflow.yaml невалидным: %w", err)
+		return fmt.Errorf("the edit made workflow.yaml invalid: %w", err)
 	}
 	return fsstore.WriteFileAtomic(path, out, 0o644)
 }

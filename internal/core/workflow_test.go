@@ -34,7 +34,7 @@ rules:
     spawn: { role: planner }
   - id: notify-review
     on: enter review
-    then: [ { notify: "готово к ревью" } ]
+    then: [ { notify: "ready for review" } ]
 `
 
 func TestParseWorkflowValid(t *testing.T) {
@@ -43,19 +43,19 @@ func TestParseWorkflowValid(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(w.Stages) != 5 {
-		t.Errorf("стадий %d, ожидалось 5", len(w.Stages))
+		t.Errorf("stages = %d, want 5", len(w.Stages))
 	}
 	if dir, ok := w.StageDirName("implementation"); !ok || dir != "3-implementation" {
 		t.Errorf("StageDirName = %q, %v", dir, ok)
 	}
 	if allowed, manual := w.TransitionAllowed("refinement", "planning"); !allowed || !manual {
-		t.Error("refinement -> planning должен быть разрешён и manual")
+		t.Error("refinement -> planning must be allowed and manual")
 	}
 	if allowed, manual := w.TransitionAllowed("review", "done"); !allowed || manual {
-		t.Error("review -> done должен быть разрешён, но не manual")
+		t.Error("review -> done must be allowed but not manual")
 	}
 	if allowed, _ := w.TransitionAllowed("done", "refinement"); allowed {
-		t.Error("отсутствующий переход должен быть запрещён")
+		t.Error("an absent transition must be forbidden")
 	}
 }
 
@@ -83,22 +83,21 @@ rules:
 func TestParseWorkflowBroken(t *testing.T) {
 	_, err := ParseWorkflow([]byte(brokenWorkflow))
 	if err == nil {
-		t.Fatal("битый workflow должен вернуть ошибку")
+		t.Fatal("a broken workflow must return an error")
 	}
 	msg := err.Error()
 	for _, want := range []string{
-		"объявлена дважды",         // дубль стадии
-		"Bad_Name",                 // формат id
-		"неизвестная стадия",       // переход в nowhere
-		"не задан agent",           // роль
-		"пустой prompt",            // роль
-		"enter неизвестной стадии", // on
-		"неизвестной роли",         // spawn ghost
-		"объявлено дважды",         // дубль правила
-		"непонятное событие",       // on bogus
+		"is declared twice",      // duplicate stage and rule
+		"Bad_Name",               // id format
+		"unknown stage",          // transition to nowhere
+		"agent is not set",       // role
+		"empty prompt",           // role
+		"enter of unknown stage", // on
+		"spawn of unknown role",  // spawn ghost
+		"unrecognized event",     // on bogus
 	} {
 		if !strings.Contains(msg, want) {
-			t.Errorf("в ошибке нет %q:\n%s", want, msg)
+			t.Errorf("error is missing %q:\n%s", want, msg)
 		}
 	}
 }

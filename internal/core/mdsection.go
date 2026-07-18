@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Markdown-тело task.md структурировано секциями "## <Имя>".
+// The markdown body of task.md is structured into "## <Name>" sections.
 
 func sectionRe(name string) *regexp.Regexp {
 	return regexp.MustCompile(`(?ms)^## ` + regexp.QuoteMeta(name) + `\s*$\n?(.*?)(^## |\z)`)

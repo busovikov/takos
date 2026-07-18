@@ -25,11 +25,11 @@ func TestWriteFileAtomic(t *testing.T) {
 		t.Errorf("content = %q, want v2", got)
 	}
 
-	// Никаких временных файлов после успешной записи.
+	// No temp files may survive a successful write.
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), ".tmp-") {
-			t.Errorf("остался временный файл %s", e.Name())
+			t.Errorf("leftover temp file %s", e.Name())
 		}
 	}
 }
@@ -41,14 +41,14 @@ func TestTryLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := TryLock(path); err == nil {
-		t.Fatal("второй TryLock должен упасть, пока лок держится")
+		t.Fatal("second TryLock must fail while the lock is held")
 	}
 	if err := l1.Unlock(); err != nil {
 		t.Fatal(err)
 	}
 	l2, err := TryLock(path)
 	if err != nil {
-		t.Fatalf("после Unlock лок должен браться: %v", err)
+		t.Fatalf("lock must be acquirable after Unlock: %v", err)
 	}
 	l2.Unlock()
 }
@@ -60,7 +60,7 @@ func TestFrontmatterRoundtrip(t *testing.T) {
 		Labels   []string `yaml:"labels,omitempty"`
 	}
 	in := meta{ID: "T-0042", Priority: "p2", Labels: []string{"auth", "tests"}}
-	body := []byte("## Objective\nОписание задачи.\n")
+	body := []byte("## Objective\nTask description.\n")
 
 	doc, err := RenderFrontmatter(in, body)
 	if err != nil {
@@ -81,11 +81,11 @@ func TestFrontmatterRoundtrip(t *testing.T) {
 
 func TestFrontmatterAbsent(t *testing.T) {
 	var out struct{}
-	body, err := ParseFrontmatter([]byte("просто текст\n"), &out)
+	body, err := ParseFrontmatter([]byte("plain text\n"), &out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != "просто текст\n" {
+	if string(body) != "plain text\n" {
 		t.Errorf("body = %q", body)
 	}
 }
@@ -93,6 +93,6 @@ func TestFrontmatterAbsent(t *testing.T) {
 func TestFrontmatterUnclosed(t *testing.T) {
 	var out struct{}
 	if _, err := ParseFrontmatter([]byte("---\nid: x\n"), &out); err == nil {
-		t.Fatal("незакрытый frontmatter должен быть ошибкой")
+		t.Fatal("unclosed frontmatter must be an error")
 	}
 }

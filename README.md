@@ -1,33 +1,35 @@
 # Takos
 
-ФС-нативный трекер задач и оркестратор coding-агентов. Вся информация — обычные
-файлы на диске: задача — папка, стадия — позиция симлинка-хендлера в папках
-спринта, журнал — plain-text. CLI/TUI лишь организуют работу с файловой
-системой; всё то же самое можно делать руками через `mv`, `ls`, `cat`.
+A filesystem-native task tracker and coding-agent orchestrator. Everything is
+plain files on disk: a task is a folder, its stage is the position of a
+handler symlink inside the sprint folders, the journal is plain text. The
+CLI/TUI merely organize work on top of the filesystem — everything can just
+as well be done by hand with `mv`, `ls` and `cat`.
 
-Один Go-бинарник `takos`: CLI (cobra) + TUI (Bubble Tea) + демоны трекера и
-раннера агентов. Единственный JS — web-интерфейс (`web/`, фаза C).
+A single Go binary `takos`: CLI (cobra) + TUI (Bubble Tea) + the tracker and
+agent-runner daemons. The only JavaScript is the web UI (`web/`, phase C).
 
-## Структура
+## Layout
 
 ```
-cmd/takos/        точка входа
+cmd/takos/        entry point
 internal/
-  cli/            команды cobra
-  core/           ядро трекера: ФС-операции, валидатор переходов, workflow
-  fsstore/        атомарные записи, локи, frontmatter
-  trackerd/       демон трекера: watcher, планировщик спринтов, правила
-  runnerd/        headless-раннер агентов (фаза B)
-  tui/            Bubble Tea: лесенка, карточка, карусель ревью
+  cli/            cobra commands
+  core/           tracker core: FS operations, transition validator, workflow
+  fsstore/        atomic writes, locks, frontmatter
+  agents/         detection of installed agent CLIs and their models
+  trackerd/       tracker daemon: watcher, sprint scheduler, rules
+  runnerd/        headless agent runner (phase B)
+  tui/            Bubble Tea: board, task card, review carousel
   version/
-web/              web-интерфейс (React/TS, фаза C)
+web/              web UI (React/TS, phase C)
 ```
 
-## Разработка
+## Development
 
 ```
-go build ./...        # сборка
-go test ./...         # тесты
-go vet ./...          # линт
+go build ./...        # build
+go test ./...         # tests
+go vet ./...          # lint
 go run ./cmd/takos --version
 ```

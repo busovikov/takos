@@ -102,14 +102,14 @@ func AddComment(taskDir, id, text string) (itemID string, err error) {
 		round = &ReviewRound{Header: fmt.Sprintf("# Review · %s · %s",
 			id, time.Now().UTC().Format("2006-01-02"))}
 	}
-	// Заголовок блока — первая строка текста, ограниченная по длине.
+	// The block title is the first line of the text, length-bounded.
 	title, _, _ := strings.Cut(text, "\n")
 	if len([]rune(title)) > 60 {
 		title = string([]rune(title)[:57]) + "…"
 	}
 	itemID = round.NextItemID()
 	round.Items = append(round.Items, ReviewItem{
-		ID: itemID, Title: title, Status: ReviewOpen, Body: "автор: user\n\n" + text,
+		ID: itemID, Title: title, Status: ReviewOpen, Body: "author: user\n\n" + text,
 	})
 	if err := SaveRound(path, round); err != nil {
 		return "", err

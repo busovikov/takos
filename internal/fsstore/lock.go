@@ -23,7 +23,7 @@ func TryLock(path string) (*Lock, error) {
 	}
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("лок %s занят другим процессом: %w", path, err)
+		return nil, fmt.Errorf("lock %s is held by another process: %w", path, err)
 	}
 	return &Lock{f: f}, nil
 }

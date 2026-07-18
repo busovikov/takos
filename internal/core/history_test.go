@@ -22,10 +22,10 @@ func TestHistoryAppendAndParse(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(events) != 3 {
-		t.Fatalf("получено %d событий, ожидалось 3", len(events))
+		t.Fatalf("got %d events, want 3", len(events))
 	}
 	if events[1].Actor != "user" || events[1].Verb != "move" || events[1].Args != "refinement -> planning" {
-		t.Errorf("событие move распарсено неверно: %+v", events[1])
+		t.Errorf("move event parsed wrong: %+v", events[1])
 	}
 	if events[2].Actor != "rule:plan-on-planning" {
 		t.Errorf("actor = %q", events[2].Actor)
@@ -33,28 +33,20 @@ func TestHistoryAppendAndParse(t *testing.T) {
 
 	stage, ok := LastMove(events)
 	if !ok || stage != "planning" {
-		t.Errorf("LastMove = %q, %v; ожидалось planning", stage, ok)
+		t.Errorf("LastMove = %q, %v; want planning", stage, ok)
 	}
 }
 
-func TestParseHistoryDropsTornLine(t *testing.T) {
-	log := "2026-07-18T15:02:11Z [user] move refinement -> planning\n" +
-		"2026-07-18T15:02:12Z [engine] session s-1 fin" // оборвано, без \n
+func TestParseHistoryDropsGarbage(t *testing.T) {
+	log := "garbage that matches no grammar\n" +
+		"2026-07-18T15:02:11Z [user] check review-approved\n"
 	events, err := ParseHistory(strings.NewReader(log))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Оборванная строка всё же матчится грамматикой (это валидный префикс) —
-	// важно, что парсер не падает; но строка без даты/скобок отбрасывается:
-	garbage := "мусор без грамматики\n2026-07-18T15:02:11Z [user] check review-approved\n"
-	events2, err := ParseHistory(strings.NewReader(garbage))
-	if err != nil {
-		t.Fatal(err)
+	if len(events) != 1 || events[0].Verb != "check" {
+		t.Errorf("garbage line must be dropped: %+v", events)
 	}
-	if len(events2) != 1 || events2[0].Verb != "check" {
-		t.Errorf("мусорная строка должна быть отброшена: %+v", events2)
-	}
-	_ = events
 }
 
 func TestLastMoveFromCreated(t *testing.T) {

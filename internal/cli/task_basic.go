@@ -15,7 +15,7 @@ import (
 func newTaskInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Создать workspace трекера (+ шаблон workflow.yaml)",
+		Short: "Create the tracker workspace (+ workflow.yaml template)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := workspaceFlag
@@ -28,7 +28,7 @@ func newTaskInitCmd() *cobra.Command {
 			}
 			active, _ := ws.ActiveSprint()
 			ok("workspace: %s", ws.Root)
-			ok("workflow.yaml: %d стадий, активный спринт %s", len(ws.WF.Stages), active.Name)
+			ok("workflow.yaml: %d stages, active sprint %s", len(ws.WF.Stages), active.Name)
 			return nil
 		},
 	}
@@ -38,8 +38,8 @@ func newTaskCreateCmd() *cobra.Command {
 	var desc, repo, prio, sprint string
 	var backlog bool
 	cmd := &cobra.Command{
-		Use:   "create \"НАЗВАНИЕ\"",
-		Short: "Создать задачу (папка в tasks/ + хендлер)",
+		Use:   "create \"TITLE\"",
+		Short: "Create a task (folder in tasks/ + handler symlink)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := openWS()
@@ -60,15 +60,15 @@ func newTaskCreateCmd() *cobra.Command {
 			if pos.Area == core.AreaSprint {
 				where = pos.Sprint + "/" + pos.Stage
 			}
-			ok("%s создана: %s (%s)", task.Meta.ID, filepath.Base(task.Dir), where)
+			ok("%s created: %s (%s)", task.Meta.ID, filepath.Base(task.Dir), where)
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&desc, "description", "d", "", "Objective — короткий драфт идеи")
-	cmd.Flags().StringVar(&repo, "repo", "", "проектный репозиторий (дефолт: git-репо из cwd)")
-	cmd.Flags().StringVarP(&prio, "priority", "p", "", "p0…p3 (дефолт p2)")
-	cmd.Flags().BoolVar(&backlog, "backlog", false, "создать в беклоге")
-	cmd.Flags().StringVar(&sprint, "sprint", "", "next — в следующий спринт")
+	cmd.Flags().StringVarP(&desc, "description", "d", "", "Objective — a short draft of the idea")
+	cmd.Flags().StringVar(&repo, "repo", "", "project repository (default: git repo of cwd)")
+	cmd.Flags().StringVarP(&prio, "priority", "p", "", "p0…p3 (default p2)")
+	cmd.Flags().BoolVar(&backlog, "backlog", false, "create in the backlog")
+	cmd.Flags().StringVar(&sprint, "sprint", "", "next — create in the next sprint")
 	return cmd
 }
 
@@ -77,7 +77,7 @@ func newTaskListCmd() *cobra.Command {
 	var stage string
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "Список задач (активный спринт; --backlog, --all)",
+		Short: "List tasks (active sprint; --backlog, --all)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := openWS()
@@ -110,19 +110,20 @@ func newTaskListCmd() *cobra.Command {
 				return json.NewEncoder(os.Stdout).Encode(out)
 			}
 			if len(out) == 0 {
-				fmt.Println("задач нет")
+				fmt.Println("no tasks")
 				return nil
 			}
 			printRows(ws, out, backlog, backlogCount)
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "машинный вывод")
-	cmd.Flags().BoolVar(&backlog, "backlog", false, "показать беклог")
-	cmd.Flags().BoolVar(&all, "all", false, "задачи всех репозиториев")
-	cmd.Flags().StringVar(&stage, "stage", "", "фильтр по стадии")
-	// --plain принимается для симметрии с TUI-режимом (A4); пока вывод всегда плоский.
-	cmd.Flags().Bool("plain", false, "плоский вывод без интерактива")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "machine-readable output")
+	cmd.Flags().BoolVar(&backlog, "backlog", false, "show the backlog")
+	cmd.Flags().BoolVar(&all, "all", false, "tasks of every repository")
+	cmd.Flags().StringVar(&stage, "stage", "", "filter by stage")
+	// --plain is accepted for symmetry with the TUI mode (A4); output is
+	// always plain for now.
+	cmd.Flags().Bool("plain", false, "plain output without the interactive UI")
 	return cmd
 }
 
@@ -169,12 +170,12 @@ func collectRows(ws *core.Workspace) ([]taskRow, error) {
 func printRows(ws *core.Workspace, rows []taskRow, backlogMode bool, backlogCount int) {
 	if !backlogMode {
 		if active, err := ws.ActiveSprint(); err == nil {
-			fmt.Printf("%s · %d задач (+%d в беклоге)\n\n", active.Name, len(rows), backlogCount)
+			fmt.Printf("%s · %d tasks (+%d in backlog)\n\n", active.Name, len(rows), backlogCount)
 		}
 	} else {
-		fmt.Printf("беклог · %d задач\n\n", len(rows))
+		fmt.Printf("backlog · %d tasks\n\n", len(rows))
 	}
-	// Сортировка: порядок стадий, затем приоритет.
+	// Sort: stage order, then priority.
 	stageIdx := func(s string) int {
 		if i, ok := ws.WF.StageIndex(s); ok {
 			return i
@@ -182,7 +183,7 @@ func printRows(ws *core.Workspace, rows []taskRow, backlogMode bool, backlogCoun
 		return -1
 	}
 	sortRows(rows, stageIdx)
-	fmt.Printf(" %-17s %-7s %-3s %-40s %s\n", "СТАДИЯ", "ID", "P", "ЗАДАЧА", "ОБНОВЛЕНА")
+	fmt.Printf(" %-17s %-7s %-3s %-40s %s\n", "STAGE", "ID", "P", "TASK", "UPDATED")
 	for _, r := range rows {
 		stage := r.Stage
 		if dn, ok := ws.WF.StageDirName(r.Stage); ok {
@@ -214,7 +215,7 @@ func newTaskShowCmd() *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "show T-0001",
-		Short: "Карточка задачи: секции, позиция, хвост истории",
+		Short: "Task card: sections, position, history tail",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := openWS()
@@ -256,14 +257,14 @@ func newTaskShowCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "машинный вывод")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "machine-readable output")
 	return cmd
 }
 
 func printFiles(taskDir string) {
 	var parts []string
 	if fi, err := os.Stat(filepath.Join(taskDir, core.PlanFile)); err == nil && fi.Size() > 0 {
-		state := "не resolved"
+		state := "not resolved"
 		if core.HasCheck(taskDir, "plan-resolved") {
 			state = "resolved ✔"
 		}
@@ -271,11 +272,11 @@ func printFiles(taskDir string) {
 	}
 	if round, path, _ := core.LoadLatestRound(taskDir); round != nil {
 		c := round.Counts()
-		parts = append(parts, fmt.Sprintf("%s (%d замечаний, %d open)",
+		parts = append(parts, fmt.Sprintf("%s (%d findings, %d open)",
 			filepath.Base(path), len(round.Items), c[core.ReviewOpen]))
 	}
 	if len(parts) > 0 {
-		fmt.Printf("ФАЙЛЫ  %s\n\n", strings.Join(parts, " · "))
+		fmt.Printf("FILES  %s\n\n", strings.Join(parts, " · "))
 	}
 }
 
@@ -284,7 +285,7 @@ func printHistoryTail(taskDir string, n int) {
 	if err != nil || len(events) == 0 {
 		return
 	}
-	fmt.Println("ИСТОРИЯ")
+	fmt.Println("HISTORY")
 	if len(events) > n {
 		events = events[len(events)-n:]
 	}
@@ -297,7 +298,7 @@ func printHistoryTail(taskDir string, n int) {
 func newTaskHistoryCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "history T-0001",
-		Short: "Полная история задачи",
+		Short: "Full task history",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := openWS()

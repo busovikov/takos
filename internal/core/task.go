@@ -25,7 +25,7 @@ type TaskMeta struct {
 type Task struct {
 	Meta TaskMeta
 	Body string // markdown: ## Objective, ## Context, ## What is done, …
-	Dir  string // абсолютный путь к папке задачи в tasks/
+	Dir  string // absolute path of the task folder in tasks/
 }
 
 const TaskFile = "task.md"

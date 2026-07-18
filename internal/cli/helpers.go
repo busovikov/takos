@@ -31,7 +31,7 @@ func currentRepo() string {
 	return strings.TrimSpace(string(out))
 }
 
-// ago renders a compact "N мин назад" for tables and status lines.
+// ago renders a compact "5m ago" for tables and status lines.
 func ago(t time.Time) string {
 	if t.IsZero() {
 		return "—"
@@ -39,13 +39,13 @@ func ago(t time.Time) string {
 	d := time.Since(t)
 	switch {
 	case d < time.Minute:
-		return "только что"
+		return "just now"
 	case d < time.Hour:
-		return fmt.Sprintf("%d мин назад", int(d.Minutes()))
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
 	case d < 24*time.Hour:
-		return fmt.Sprintf("%d ч назад", int(d.Hours()))
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	default:
-		return fmt.Sprintf("%d дн назад", int(d.Hours()/24))
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
 }
 

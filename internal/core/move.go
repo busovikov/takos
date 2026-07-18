@@ -19,8 +19,8 @@ type MoveResult struct {
 // may use automatic transitions too. destSprint chooses the target sprint
 // when moving out of the backlog ("" → active).
 //
-// Отказ — ошибка с той же фразой, что показывает статус-бар TUI; ФС при
-// отказе не тронута.
+// A refusal is an error carrying the exact phrase the TUI status bar shows;
+// the filesystem is left untouched.
 func (ws *Workspace) MoveTask(id, to, actor, destSprint string) (*MoveResult, error) {
 	taskDir, err := ws.FindTaskDir(id)
 	if err != nil {
@@ -33,35 +33,36 @@ func (ws *Workspace) MoveTask(id, to, actor, destSprint string) (*MoveResult, er
 	from := pos.Stage
 
 	if pos.Area == AreaArchive {
-		return nil, fmt.Errorf("%s: задача в архиве (%s) — перемещения запрещены", id, pos.Sprint)
+		return nil, fmt.Errorf("%s: task is archived (%s) — moves are not allowed", id, pos.Sprint)
 	}
 	if from == to {
-		return nil, fmt.Errorf("%s уже в %s", id, to)
+		return nil, fmt.Errorf("%s is already in %s", id, to)
 	}
 
-	// Необработанные замечания ревью блокируют любые перемещения.
+	// Untriaged review findings block every move.
 	if n, err := OpenReviewCount(taskDir); err != nil {
 		return nil, err
 	} else if n > 0 {
-		return nil, fmt.Errorf("%s: %s → %s — %d замечаний не обработано (takos task review %s)",
+		return nil, fmt.Errorf("%s: %s → %s — %d review findings still open (takos task review %s)",
 			id, from, to, n, id)
 	}
 
-	// Разрешён ли переход.
+	// Is the transition allowed.
 	if to == Backlog {
-		// В беклог можно из любой стадии (осознанное действие с подтверждением в TUI).
+		// Any stage may go back to the backlog (a deliberate action,
+		// confirmed in the TUI).
 	} else {
 		if _, ok := ws.WF.StageIndex(to); !ok {
-			return nil, fmt.Errorf("неизвестная стадия %q", to)
+			return nil, fmt.Errorf("unknown stage %q", to)
 		}
 		allowed, manual := ws.WF.TransitionAllowed(from, to)
 		if !allowed {
-			return nil, fmt.Errorf("%s: переход %s → %s не разрешён workflow", id, from, to)
+			return nil, fmt.Errorf("%s: transition %s → %s is not allowed by the workflow", id, from, to)
 		}
 		if actor == "user" && !manual {
-			return nil, fmt.Errorf("%s: переход %s → %s выполняется только автоматикой", id, from, to)
+			return nil, fmt.Errorf("%s: transition %s → %s is automation-only", id, from, to)
 		}
-		// Гейты входа (needs): глоб файла в папке задачи или check:<имя>.
+		// Entry gates (needs): a file glob inside the task folder or check:<name>.
 		for _, need := range ws.stageByID(to).Needs {
 			if err := ws.checkNeed(taskDir, need); err != nil {
 				return nil, fmt.Errorf("%s: %s → %s — %w", id, from, to, err)
@@ -69,13 +70,13 @@ func (ws *Workspace) MoveTask(id, to, actor, destSprint string) (*MoveResult, er
 		}
 	}
 
-	// Целевая папка.
+	// Target directory.
 	destDir, err := ws.destDirFor(pos, to, destSprint)
 	if err != nil {
 		return nil, err
 	}
 
-	// Скаффолд целевой стадии (создаётся до перемещения — крашу безопасно).
+	// Scaffold of the target stage (created before the move — crash-safe).
 	if to != Backlog {
 		for _, f := range ws.stageByID(to).Scaffold {
 			p := filepath.Join(taskDir, f)
@@ -104,13 +105,10 @@ func (ws *Workspace) stageByID(id string) *Stage {
 func (ws *Workspace) checkNeed(taskDir, need string) error {
 	if name, ok := strings.CutPrefix(need, "check:"); ok {
 		if !HasCheck(taskDir, name) {
-			hint := name
 			if name == "plan-resolved" {
-				hint = "план не resolved (takos task resolve <id>, если план готов)"
-			} else {
-				hint = fmt.Sprintf("нужен check %s", name)
+				return fmt.Errorf("plan is not resolved (takos task resolve <id> once the plan is ready)")
 			}
-			return fmt.Errorf("%s", hint)
+			return fmt.Errorf("requires check %s", name)
 		}
 		return nil
 	}
@@ -123,7 +121,7 @@ func (ws *Workspace) checkNeed(taskDir, need string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("нужен непустой %s", need)
+	return fmt.Errorf("requires a non-empty %s", need)
 }
 
 func (ws *Workspace) destDirFor(pos *HandlerPos, to, destSprint string) (string, error) {
@@ -141,7 +139,7 @@ func (ws *Workspace) destDirFor(pos *HandlerPos, to, destSprint string) (string,
 	} else if destSprint != "" {
 		sprint = &SprintInfo{Name: destSprint, Dir: filepath.Join(ws.SprintsDir(), destSprint)}
 		if _, statErr := os.Stat(sprint.Dir); statErr != nil {
-			err = fmt.Errorf("спринт %s не найден", destSprint)
+			err = fmt.Errorf("sprint %s not found", destSprint)
 		}
 	} else {
 		sprint, err = ws.ActiveSprint()

@@ -13,7 +13,7 @@ func newTaskReviewCmd() *cobra.Command {
 	var resolve, rework, techdebt bool
 	cmd := &cobra.Command{
 		Use:   "review T-0001 [R2]",
-		Short: "Замечания ревью: список или триаж одного (--resolve|--rework|--tech-debt)",
+		Short: "Review findings: list, or triage one (--resolve|--rework|--tech-debt)",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := openWS()
@@ -29,7 +29,7 @@ func newTaskReviewCmd() *cobra.Command {
 				return err
 			}
 			if round == nil {
-				fmt.Println("раундов ревью нет")
+				fmt.Println("no review rounds")
 				return nil
 			}
 			if len(args) == 1 {
@@ -39,15 +39,15 @@ func newTaskReviewCmd() *cobra.Command {
 			return triage(ws, taskDir, args[0], args[1], round, path, resolve, rework, techdebt)
 		},
 	}
-	cmd.Flags().BoolVar(&resolve, "resolve", false, "проблема закрыта")
-	cmd.Flags().BoolVar(&rework, "rework", false, "на доработку")
-	cmd.Flags().BoolVar(&techdebt, "tech-debt", false, "в техдолг (задача в беклоге)")
+	cmd.Flags().BoolVar(&resolve, "resolve", false, "the finding is settled")
+	cmd.Flags().BoolVar(&rework, "rework", false, "needs rework")
+	cmd.Flags().BoolVar(&techdebt, "tech-debt", false, "to tech debt (a backlog task)")
 	return cmd
 }
 
 func printRound(round *core.ReviewRound, path string) {
 	c := round.Counts()
-	fmt.Printf("%s · %d замечаний · %d open · %d resolved · %d rework · %d техдолг\n\n",
+	fmt.Printf("%s · %d findings · %d open · %d resolved · %d rework · %d tech-debt\n\n",
 		filepath.Base(path), len(round.Items),
 		c[core.ReviewOpen], c[core.ReviewResolved], c[core.ReviewRework], c[core.ReviewTechDebt])
 	for _, it := range round.Items {
@@ -67,7 +67,7 @@ func triage(ws *core.Workspace, taskDir, id, itemID string,
 	case techdebt && !resolve && !rework:
 		st = core.ReviewTechDebt
 	default:
-		return fmt.Errorf("укажи ровно один из --resolve | --rework | --tech-debt")
+		return fmt.Errorf("pick exactly one of --resolve | --rework | --tech-debt")
 	}
 	if err := round.SetStatus(itemID, st); err != nil {
 		return err
@@ -79,27 +79,27 @@ func triage(ws *core.Workspace, taskDir, id, itemID string,
 		fmt.Sprintf("%s %s -> %s", filepath.Base(path), itemID, st))
 	ok("%s → %s", itemID, st)
 
-	// Техдолг — сразу задача в беклоге со ссылкой на источник.
+	// Tech debt spawns a backlog task pointing back at its source.
 	if st == core.ReviewTechDebt {
 		item := findItem(round, itemID)
 		task, err := loadTaskMeta(ws, id)
 		if err == nil {
 			debt, _, err := ws.CreateTask(item.Title, core.CreateOpts{
-				Objective: fmt.Sprintf("%s\n\nисточник: %s · %s#%s",
+				Objective: fmt.Sprintf("%s\n\nsource: %s · %s#%s",
 					item.Body, id, filepath.Base(path), itemID),
 				Repo: task.Repo, Backlog: true,
 			})
 			if err != nil {
 				return err
 			}
-			ok("техдолг → %s «%s» создана в беклоге", debt.Meta.ID, debt.Meta.Title)
+			ok("tech-debt → %s %q created in the backlog", debt.Meta.ID, debt.Meta.Title)
 		}
 	}
 
-	// Триаж завершён → вердикт и авто-движение.
+	// Triage finished → verdict and auto-move.
 	if v, done := round.Verdict(); done {
 		c := round.Counts()
-		fmt.Printf("раунд обработан: %d resolved · %d техдолг · %d на доработку\n",
+		fmt.Printf("round triaged: %d resolved · %d tech-debt · %d rework\n",
 			c[core.ReviewResolved], c[core.ReviewTechDebt], c[core.ReviewRework])
 		target := "done"
 		if v == "rework" {
@@ -109,7 +109,7 @@ func triage(ws *core.Workspace, taskDir, id, itemID string,
 			ok("%s → %s", res.ID, res.To)
 		}
 	} else {
-		fmt.Printf("осталось open: %d\n", round.Counts()[core.ReviewOpen])
+		fmt.Printf("open left: %d\n", round.Counts()[core.ReviewOpen])
 	}
 	return nil
 }
@@ -137,8 +137,8 @@ func loadTaskMeta(ws *core.Workspace, id string) (*core.TaskMeta, error) {
 
 func newTaskCommentCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "comment T-0001 \"ТЕКСТ\"",
-		Short: "Добавить своё замечание в текущий раунд ревью",
+		Use:   "comment T-0001 \"TEXT\"",
+		Short: "Add your own finding to the current review round",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := openWS()
@@ -153,7 +153,7 @@ func newTaskCommentCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ok("замечание %s добавлено", itemID)
+			ok("finding %s added", itemID)
 			return nil
 		},
 	}

@@ -13,11 +13,11 @@ import (
 
 // CreateOpts controls where and how a task is born.
 type CreateOpts struct {
-	Objective string // тело ## Objective (может быть пустым)
+	Objective string // body of ## Objective (may be empty)
 	Repo      string
-	Priority  string // p0…p3; пусто → p2
-	Backlog   bool   // хендлер в backlog/ вместо первой стадии активного спринта
-	Sprint    string // "" → активный; "next" → следующий
+	Priority  string // p0…p3; empty → p2
+	Backlog   bool   // handler in backlog/ instead of the active sprint's first stage
+	Sprint    string // "" → active; "next" → the next sprint
 }
 
 var taskDirRe = regexp.MustCompile(`^T-(\d{4,})-`)
@@ -69,7 +69,7 @@ func (ws *Workspace) CreateTask(title string, opts CreateOpts) (*Task, *HandlerP
 		return nil, nil, err
 	}
 
-	// Хендлер: беклог или первая стадия выбранного спринта.
+	// The handler: backlog or the first stage of the chosen sprint.
 	var destDir, stage string
 	if opts.Backlog {
 		destDir, stage = ws.BacklogDir(), Backlog
@@ -105,7 +105,7 @@ func (t *Task) SetObjective(text string) error {
 	return t.Save()
 }
 
-// --- checks: файлы-маркеры .checks/<имя> (существует = true) ---
+// --- checks: marker files .checks/<name> (exists = true) ---
 
 // SetCheck creates the marker file for a named check.
 func SetCheck(taskDir, name string) error {
