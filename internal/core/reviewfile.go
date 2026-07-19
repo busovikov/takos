@@ -117,3 +117,34 @@ func AddComment(taskDir, id, text string) (itemID string, err error) {
 	AppendHistory(taskDir, "user", "comment", fmt.Sprintf("%s %s", filepath.Base(path), itemID))
 	return itemID, nil
 }
+
+// HandoffFileName is the implementation digest artifact in the task folder.
+const HandoffFileName = "hand-off.md"
+
+// AppendReworkToHandoff copies a triaged round's rework findings into the
+// "From review" section of hand-off.md, so the executor's next session
+// opens straight on them. No rework findings — no touch.
+func AppendReworkToHandoff(taskDir, roundPath string, r *ReviewRound) error {
+	var lines []string
+	for _, it := range r.Items {
+		if it.Status == ReviewRework {
+			lines = append(lines, fmt.Sprintf("- [%s · %s] %s",
+				filepath.Base(roundPath), it.ID, it.Title))
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	path := filepath.Join(taskDir, HandoffFileName)
+	body := ""
+	if data, err := os.ReadFile(path); err == nil {
+		body = string(data)
+	}
+	sec := GetSection(body, "From review")
+	if sec != "" {
+		sec += "\n"
+	}
+	sec += strings.Join(lines, "\n")
+	body = SetSection(body, "From review", sec)
+	return fsstore.WriteFileAtomic(path, []byte(body), 0o644)
+}

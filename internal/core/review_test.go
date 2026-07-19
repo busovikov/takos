@@ -1,6 +1,8 @@
 package core
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -86,5 +88,51 @@ func TestReviewRoundtrip(t *testing.T) {
 func TestParseReviewUnknownStatus(t *testing.T) {
 	if _, err := ParseReviewRound("## [R1] Something — maybe\n"); err == nil {
 		t.Fatal("an unknown status must be an error")
+	}
+}
+
+func TestAppendReworkToHandoff(t *testing.T) {
+	dir := t.TempDir()
+	round := &ReviewRound{Items: []ReviewItem{
+		{ID: "R1", Title: "Fix the race", Status: ReviewRework},
+		{ID: "R2", Title: "Style nit", Status: ReviewResolved},
+		{ID: "R3", Title: "Missing test", Status: ReviewRework},
+	}}
+	// hand-off.md already has the executor's sections — only "From review"
+	// changes.
+	seed := "## Done\nsteps 1-3\n\n## From review\n- [R-001.md · R9] older item\n"
+	if err := os.WriteFile(filepath.Join(dir, HandoffFileName), []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := AppendReworkToHandoff(dir, "reviews/R-002.md", round); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, HandoffFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	sec := GetSection(body, "From review")
+	for _, want := range []string{"older item", "[R-002.md · R1] Fix the race", "[R-002.md · R3] Missing test"} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("From review misses %q:\n%s", want, sec)
+		}
+	}
+	if strings.Contains(sec, "Style nit") {
+		t.Errorf("resolved finding leaked into hand-off:\n%s", sec)
+	}
+	if GetSection(body, "Done") != "steps 1-3" {
+		t.Errorf("Done section was disturbed:\n%s", body)
+	}
+
+	// A round with no rework findings must not create or touch the file.
+	empty := t.TempDir()
+	clean := &ReviewRound{Items: []ReviewItem{{ID: "R1", Title: "ok", Status: ReviewResolved}}}
+	if err := AppendReworkToHandoff(empty, "reviews/R-001.md", clean); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(empty, HandoffFileName)); !os.IsNotExist(err) {
+		t.Error("hand-off.md appeared without rework findings")
 	}
 }

@@ -129,7 +129,7 @@ func startBackground(ws *core.Workspace, id, role string, forceNew bool) error {
 			return err
 		}
 	}
-	job, err := runnerd.PlanJob(ws, id, role, forceNew)
+	job, err := runnerd.PlanJob(ws, id, runnerd.JobOpts{Role: role, ForceNew: forceNew})
 	if err != nil {
 		return err
 	}
@@ -167,7 +167,7 @@ func newTaskAgentExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			job, err := runnerd.PlanJob(ws, args[0], role, forceNew)
+			job, err := runnerd.PlanJob(ws, args[0], runnerd.JobOpts{Role: role, ForceNew: forceNew})
 			if err != nil {
 				return err
 			}

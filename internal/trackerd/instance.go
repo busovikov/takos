@@ -10,6 +10,7 @@ import (
 
 	"github.com/busovikov/takos/internal/core"
 	"github.com/busovikov/takos/internal/fsstore"
+	"github.com/busovikov/takos/internal/rules"
 	"github.com/busovikov/takos/internal/watch"
 )
 
@@ -29,8 +30,10 @@ type instance struct {
 	log  *log.Logger
 
 	// Owned by the loop goroutine; no locking needed.
-	ws   *core.Workspace
-	snap map[string]core.HandlerPos
+	ws     *core.Workspace
+	snap   map[string]core.HandlerPos
+	engine *rules.Engine
+	ctx    context.Context // loop context, also bounds engine-spawned jobs
 
 	mu        sync.Mutex
 	state     string
@@ -80,6 +83,8 @@ func (in *instance) tryStart(ctx context.Context) {
 	in.snap = in.snapshot()
 	ictx, cancel := context.WithCancel(ctx)
 	in.cancel = cancel
+	in.ctx = ictx
+	in.engine = rules.New(ws, in.name, in.log, nil)
 	in.done = make(chan struct{})
 
 	in.mu.Lock()
@@ -103,6 +108,10 @@ func (in *instance) loop(ctx context.Context, w *watch.Watcher) {
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 
+	// One scan right away: automation that came due while the daemon was
+	// down (entered stages, finished sessions) must not wait for a tick.
+	in.scan(false)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -121,12 +130,17 @@ func (in *instance) loop(ctx context.Context, w *watch.Watcher) {
 	}
 }
 
-// stop shuts the loop down and releases the workspace lock.
+// stop shuts the loop down and releases the workspace lock. Engine-spawned
+// in-process jobs share the loop context — cancelled here, awaited so their
+// outcomes are recorded before the instance reports stopped.
 func (in *instance) stop() {
 	if in.cancel != nil {
 		in.cancel()
 		<-in.done
 		in.cancel = nil
+		if in.engine != nil {
+			in.engine.Wait()
+		}
 	}
 	in.mu.Lock()
 	in.state = StateStopped
