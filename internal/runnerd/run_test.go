@@ -190,3 +190,41 @@ func waitCond(t *testing.T, timeout time.Duration, cond func() bool) {
 	}
 	t.Fatal("condition not met")
 }
+
+// TestResumeJobByName exercises the failure-path entry: a limited session
+// is re-entered by its exact name with --resume, and the second attempt
+// runs to finished.
+func TestResumeJobByName(t *testing.T) {
+	flag := filepath.Join(t.TempDir(), "resumed")
+	mockAgent(t, "if [ -f "+flag+" ]; then echo 'done now'; exit 0; fi\n"+
+		"touch "+flag+"\necho 'You have hit your usage limit.'\nexit 1")
+	ws, task := newRunnerWS(t)
+
+	job, err := PlanJob(ws, task.Meta.ID, JobOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome, err := job.Execute(context.Background()); err != nil || outcome != session.OutcomeLimit {
+		t.Fatalf("first run: %s, %v", outcome, err)
+	}
+
+	res, err := ResumeJob(ws, task.Meta.ID, job.Name, "planner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Resume || res.Name != job.Name || res.UUID != job.UUID {
+		t.Fatalf("resume job: %+v, want the same session", res)
+	}
+	argv := strings.Join(res.Argv, " ")
+	if !strings.Contains(argv, "--resume "+job.UUID) || strings.Contains(argv, "--session-id") {
+		t.Fatalf("argv = %q, want --resume of the same uuid", argv)
+	}
+	if outcome, err := res.Execute(context.Background()); err != nil || outcome != session.OutcomeFinished {
+		t.Fatalf("resume run: %s, %v", outcome, err)
+	}
+
+	// A name that never ran has no marker — refused, not silently started.
+	if _, err := ResumeJob(ws, task.Meta.ID, task.Meta.ID+"-planning#9", "planner"); err == nil {
+		t.Error("resume of an unknown session must be refused")
+	}
+}

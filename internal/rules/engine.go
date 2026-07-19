@@ -26,6 +26,9 @@ import (
 type SpawnSpec struct {
 	Role        string
 	PromptExtra string
+	// Session, when set, resumes this exact session by name instead of
+	// planning a stage entry — the failure paths re-enter what they left.
+	Session string
 	// ClientToken is deterministic (workspace/task/rule/event), so a retry
 	// after a tracker restart never starts a second job on the runner daemon.
 	ClientToken string
@@ -66,9 +69,6 @@ func (e *Engine) Wait() { e.wg.Wait() }
 // Scan evaluates every rule against every active task (sprint stages only —
 // backlog and archive are quiet) and returns human-readable action lines.
 func (e *Engine) Scan(ctx context.Context) []string {
-	if len(e.ws.WF.Rules) == 0 {
-		return nil
-	}
 	handlers, err := e.ws.ListHandlers("")
 	if err != nil {
 		return []string{fmt.Sprintf("rules: %v", err)}
@@ -106,6 +106,10 @@ func (e *Engine) scanTask(ctx context.Context, id, curStage string) []string {
 	if task.Meta.Automation == "paused" {
 		return nil
 	}
+	// A session whose process died without a terminal record (the daemon was
+	// killed mid-job) is finalized here — its interrupted event is what the
+	// retry path below reacts to.
+	session.RepairStale(taskDir)
 	events, err := core.ReadHistory(taskDir)
 	if err != nil {
 		return nil
@@ -146,7 +150,150 @@ func (e *Engine) scanTask(ctx context.Context, id, curStage string) []string {
 			spent++
 		}
 	}
+	if line := e.failurePath(ctx, id, taskDir, curStage, task, events, handled, spent, budget); line != "" {
+		actions = append(actions, id+": "+line)
+	}
 	return actions
+}
+
+// Built-in failure rules; their ledger ids are reserved.
+const (
+	autoResumeRule = "auto-resume-limit"
+	autoRetryRule  = "auto-retry-interrupted"
+)
+
+// failurePath heals the task's last headless session: a limit verdict is
+// resumed once the pause lapses (limits reset with time), a crash is
+// resumed up to sessionMaxRetries times, and past that the task's
+// automation pauses — a broken agent must not loop. Sessions launched by
+// the user are left alone: the entry policy consults them at the keyboard.
+func (e *Engine) failurePath(ctx context.Context, id, taskDir, curStage string,
+	task *core.Task, events []core.HistoryEvent, handled map[string]int, spent, budget int) string {
+
+	idx, outcome, name := lastTerminalSession(events)
+	if idx < 0 || outcome == session.OutcomeFinished {
+		return ""
+	}
+	launcher := launcherOf(events, idx, name)
+	if !strings.HasPrefix(launcher, "agent:") {
+		return ""
+	}
+	role := strings.TrimPrefix(launcher, "agent:")
+	// A stale session (the task has moved on) is not resumed; moving back
+	// makes it eligible again. Digests belong to their base stage.
+	stage := session.StageOf(id, name)
+	if strings.TrimSuffix(stage, "-handoff") != curStage {
+		return ""
+	}
+
+	ruleID, gate := autoResumeRule, time.Duration(defaulted(e.ws.WF.Settings.LimitRetryMinutes, 15))*time.Minute
+	if outcome == session.OutcomeInterrupted {
+		ruleID, gate = autoRetryRule, time.Duration(defaulted(e.ws.WF.Settings.SessionRetryDelaySec, 30))*time.Second
+	}
+	if idx <= handledIdx(handled, ruleID) {
+		return ""
+	}
+	if time.Since(events[idx].At) < gate {
+		return "" // the pause; a later poll tick retries
+	}
+	if spent >= budget {
+		return fmt.Sprintf("rule %s deferred — budget %d/hour exhausted", ruleID, budget)
+	}
+
+	// Crash retries are bounded; exhausting them pauses the automation.
+	if outcome == session.OutcomeInterrupted {
+		maxRetries := defaulted(e.ws.WF.Settings.SessionMaxRetries, 2)
+		if resumeCount(events, name) >= maxRetries {
+			task.Meta.Automation = "paused"
+			if err := task.Save(); err != nil {
+				return fmt.Sprintf("rule %s: pausing automation: %v", ruleID, err)
+			}
+			core.AppendHistory(taskDir, "engine", "notify",
+				fmt.Sprintf("automation paused: session %s keeps dying (%d resumes spent)", name, maxRetries))
+			core.AppendHistory(taskDir, "engine", "rule",
+				fmt.Sprintf("%s #%d paused automation", ruleID, idx))
+			return fmt.Sprintf("rule %s → automation paused (%s)", ruleID, name)
+		}
+	}
+
+	e.mu.Lock()
+	busy := e.inflight[id]
+	e.mu.Unlock()
+	if busy || session.Active(taskDir) != nil {
+		return ""
+	}
+	spec := SpawnSpec{
+		Role: role, Session: name,
+		ClientToken: fmt.Sprintf("rule:%s:%s:%s:%d", e.wsName, id, ruleID, idx),
+	}
+	if err := e.spawn(ctx, id, spec); err != nil {
+		if strings.Contains(err.Error(), "already running") {
+			return ""
+		}
+		core.AppendHistory(taskDir, "engine", "rule-error",
+			fmt.Sprintf("%s #%d resume %s: %v", ruleID, idx, name, err))
+		return fmt.Sprintf("rule %s: resume %s: %v", ruleID, name, err)
+	}
+	core.AppendHistory(taskDir, "engine", "rule",
+		fmt.Sprintf("%s #%d resume %s", ruleID, idx, name))
+	return fmt.Sprintf("rule %s → resume %s", ruleID, name)
+}
+
+// lastTerminalSession finds the newest session ending — the task's session
+// health is whatever ended last.
+func lastTerminalSession(events []core.HistoryEvent) (idx int, outcome, name string) {
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Verb != "session" {
+			continue
+		}
+		f := strings.Fields(events[i].Args)
+		if len(f) < 2 {
+			continue
+		}
+		switch f[0] {
+		case session.OutcomeFinished, session.OutcomeLimit, session.OutcomeInterrupted:
+			return i, f[0], f[1]
+		}
+	}
+	return -1, "", ""
+}
+
+// launcherOf names the actor that last started/resumed the session — the
+// terminal record may come from the repair pass ("engine"), the launcher
+// tells whose session it really is.
+func launcherOf(events []core.HistoryEvent, before int, name string) string {
+	for i := before; i >= 0; i-- {
+		if events[i].Verb != "session" {
+			continue
+		}
+		f := strings.Fields(events[i].Args)
+		if len(f) >= 2 && f[1] == name && (f[0] == "start" || f[0] == "resume") {
+			return events[i].Actor
+		}
+	}
+	return ""
+}
+
+// resumeCount counts the resumes a session has already consumed.
+func resumeCount(events []core.HistoryEvent, name string) int {
+	n := 0
+	for _, ev := range events {
+		if ev.Verb != "session" {
+			continue
+		}
+		f := strings.Fields(ev.Args)
+		if len(f) >= 2 && f[0] == "resume" && f[1] == name {
+			n++
+		}
+	}
+	return n
+}
+
+func defaulted(v, def int) int {
+	if v <= 0 {
+		return def
+	}
+	return v
 }
 
 // fire runs a rule's actions for one trigger. The "rule" ledger record is
@@ -220,7 +367,8 @@ func (e *Engine) defaultSpawn(ctx context.Context, taskID string, spec SpawnSpec
 	client, err := runnerd.Connect()
 	if err == nil {
 		_, err = client.Submit(e.wsName, taskID, runnerd.SubmitRequest{
-			Role: spec.Role, PromptExtra: spec.PromptExtra, ClientToken: spec.ClientToken,
+			Role: spec.Role, PromptExtra: spec.PromptExtra,
+			Session: spec.Session, ClientToken: spec.ClientToken,
 		})
 		return err
 	}
@@ -228,9 +376,14 @@ func (e *Engine) defaultSpawn(ctx context.Context, taskID string, spec SpawnSpec
 		return err
 	}
 
-	job, err := runnerd.PlanJob(e.ws, taskID, runnerd.JobOpts{
-		Role: spec.Role, PromptExtra: spec.PromptExtra,
-	})
+	var job *runnerd.Job
+	if spec.Session != "" {
+		job, err = runnerd.ResumeJob(e.ws, taskID, spec.Session, spec.Role)
+	} else {
+		job, err = runnerd.PlanJob(e.ws, taskID, runnerd.JobOpts{
+			Role: spec.Role, PromptExtra: spec.PromptExtra,
+		})
+	}
 	if err != nil {
 		return err
 	}

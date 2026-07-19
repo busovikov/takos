@@ -27,6 +27,20 @@ func Name(taskID, stage string, gen int) string {
 	return fmt.Sprintf("%s-%s#%d", taskID, stage, gen)
 }
 
+// StageOf extracts the stage part of a session name ("" — not this task's
+// name). Pseudo-stages come back verbatim: "planning-handoff".
+func StageOf(taskID, name string) string {
+	rest, ok := strings.CutPrefix(name, taskID+"-")
+	if !ok {
+		return ""
+	}
+	stage, _, ok := strings.Cut(rest, "#")
+	if !ok {
+		return ""
+	}
+	return stage
+}
+
 // UUID derives the deterministic session UUID (uuidv5) from a session name.
 func UUID(name string) string {
 	h := sha1.New()

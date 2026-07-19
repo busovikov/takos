@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -239,5 +240,38 @@ func TestSubmitUnknownWorkspaceAndTask(t *testing.T) {
 	}
 	if _, err := c.Submit("w1", "T-9999", SubmitRequest{}); err == nil {
 		t.Error("unknown task must be refused")
+	}
+}
+
+// TestDaemonResumesSessionByName drives the failure path over the API: the
+// submit's Session field re-enters the limited session instead of planning
+// a stage entry.
+func TestDaemonResumesSessionByName(t *testing.T) {
+	flag := filepath.Join(t.TempDir(), "resumed")
+	mockAgent(t, "if [ -f "+flag+" ]; then echo 'done now'; exit 0; fi\n"+
+		"touch "+flag+"\necho 'You have hit your usage limit.'\nexit 1")
+	c, _ := startTestDaemon(t)
+	ws, task := newRunnerWS(t)
+	registerWS(t, ws, "w1")
+
+	first, err := c.Submit("w1", task.Meta.ID, SubmitRequest{ClientToken: NewToken()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := waitJob(t, c, first.ID); got.Outcome != session.OutcomeLimit {
+		t.Fatalf("first job: %+v, want limit", got)
+	}
+
+	res, err := c.Submit("w1", task.Meta.ID, SubmitRequest{
+		Session: first.Session, Role: "planner", ClientToken: NewToken(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Resume || res.Session != first.Session {
+		t.Fatalf("resume job: %+v, want a resume of %s", res, first.Session)
+	}
+	if got := waitJob(t, c, res.ID); got.Outcome != session.OutcomeFinished {
+		t.Fatalf("resume: %+v, want finished", got)
 	}
 }
