@@ -106,11 +106,6 @@ func TestPlanEntryPolicy(t *testing.T) {
 			if tc.resume != "" && p.ResumeUUID != UUID(tc.resume) {
 				t.Errorf("ResumeUUID mismatch")
 			}
-			// The hand-off digest precedes every fresh session except the very first.
-			wantRegen := tc.mode != ModeResume && tc.reason != "first"
-			if p.RegenHandoff != wantRegen {
-				t.Errorf("RegenHandoff = %v, want %v", p.RegenHandoff, wantRegen)
-			}
 		})
 	}
 }

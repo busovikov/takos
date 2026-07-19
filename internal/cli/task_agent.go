@@ -64,6 +64,25 @@ func newTaskAgentCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A fresh entry regenerates the stage's hand-off digest first
+			// (headless summarizer), so the session opens on condensed facts.
+			if !resume {
+				pre, err := runnerd.HandoffJob(ws, task, pos.Stage, plan.Reason)
+				if err != nil {
+					return err
+				}
+				if pre != nil {
+					fmt.Printf("↻ %s · %s · regenerating the hand-off digest\n", pre.Name, pre.Role)
+					outcome, err := pre.Execute(cmd.Context())
+					if err != nil {
+						return err
+					}
+					if outcome != session.OutcomeFinished {
+						return fmt.Errorf("hand-off digest %s %s — session %s was not started",
+							pre.Name, outcome, e.Name)
+					}
+				}
+			}
 			mode := "new"
 			if e.Resume {
 				mode = "resume"

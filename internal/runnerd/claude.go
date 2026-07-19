@@ -21,7 +21,7 @@ func (claudeAdapter) Argv(r Request) []string {
 	}
 	if r.PermissionMode == "auto" {
 		// Headless has nobody to answer permission prompts; auto roles
-		// (executor, handover) get the full-trust flag.
+		// (executor, handover, summarizer) get the full-trust flag.
 		argv = append(argv, "--dangerously-skip-permissions")
 	}
 	return append(argv, r.Prompt)

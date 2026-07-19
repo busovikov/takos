@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/busovikov/takos/internal/runnerd"
 	"github.com/busovikov/takos/internal/session"
 )
 
@@ -16,6 +18,14 @@ import (
 // card reopens with a rescan when it exits.
 
 type sessionDoneMsg struct{ id string }
+
+// handoffDoneMsg reports the summarizer pre-run that regenerates the
+// hand-off digest before a fresh session; e is the session waiting to start.
+type handoffDoneMsg struct {
+	e       *session.Exec
+	outcome string
+	err     error
+}
 
 // sessionProc adapts an *exec.Cmd to tea.ExecCommand while wrapping the run
 // with the session bookkeeping (marker + history on start and exit).
@@ -45,6 +55,8 @@ func (a *App) runSession(e *session.Exec) tea.Cmd {
 }
 
 // buildSession plans and builds an entry in one stroke for the card menu.
+// A fresh entry regenerates the stage's hand-off digest first: the headless
+// summarizer runs behind a status line, then the session starts.
 func (a *App) buildSession(id string, resume bool, forceNew bool) tea.Cmd {
 	task, pos, plan, err := session.Plan(a.ws, id)
 	if err != nil {
@@ -56,6 +68,20 @@ func (a *App) buildSession(id string, resume bool, forceNew bool) tea.Cmd {
 	e, err := session.Build(a.ws, task, pos, plan, resume, "")
 	if err != nil {
 		return a.flash(stErr, "✗ %v", err)
+	}
+	if !resume {
+		pre, err := runnerd.HandoffJob(a.ws, task, pos.Stage, plan.Reason)
+		if err != nil {
+			return a.flash(stErr, "✗ %v", err)
+		}
+		if pre != nil {
+			return tea.Batch(
+				a.flash(stDim, "↻ %s · regenerating the hand-off digest…", pre.Name),
+				func() tea.Msg {
+					outcome, err := pre.Execute(context.Background())
+					return handoffDoneMsg{e: e, outcome: outcome, err: err}
+				})
+		}
 	}
 	return a.runSession(e)
 }

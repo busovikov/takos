@@ -123,6 +123,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.openCard(a.card.id)
 		}
 		return a, nil
+	case handoffDoneMsg:
+		// The digest pre-run ended: a finished summarizer hands over to the
+		// waiting session, anything else keeps the terminal and reports.
+		if m.err != nil {
+			return a, a.flash(stErr, "✗ %v", m.err)
+		}
+		if m.outcome != session.OutcomeFinished {
+			return a, a.flash(stErr, "✗ hand-off digest %s — session %s was not started",
+				m.outcome, m.e.Name)
+		}
+		return a, a.runSession(m.e)
 	case sessionDoneMsg:
 		// The agent session ended — rescan and return to the card, per the
 		// contract "exit → the card with a rescan".
