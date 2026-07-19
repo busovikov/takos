@@ -11,19 +11,17 @@ import (
 	"github.com/busovikov/takos/internal/core"
 )
 
-func newTestDaemon(t *testing.T) (*Daemon, *core.Workspace) {
+func newTestDaemon(t *testing.T) (*instance, *core.Workspace) {
 	t.Helper()
 	ws, err := core.Init(filepath.Join(t.TempDir(), "workspace"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &Daemon{
-		ws:        ws,
-		log:       log.New(os.Stderr, "", 0),
-		startedAt: time.Now(),
-	}
-	d.snap = d.snapshot()
-	return d, ws
+	in := newInstance("test", ws.Root, log.New(os.Stderr, "", 0))
+	in.ws = ws
+	in.state = StateRunning
+	in.snap = in.snapshot()
+	return in, ws
 }
 
 // externalMv simulates a user's `mv` of a handler into another stage folder.

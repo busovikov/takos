@@ -1,8 +1,9 @@
-// Package trackerd is the tracker daemon: an fsnotify watcher over the
-// workspace that validates manual mv gestures (rolling invalid ones back),
-// repairs handler invariants via the reconciler, closes overdue sprints and
-// serves a small status API on :7434. It is stateless — everything it knows
-// is re-derived from the filesystem, so killing it never loses data.
+// Package trackerd is the tracker daemon: one process supervising every
+// registered workspace. Each workspace gets an independent instance
+// (fsnotify watcher + mv validation/rollback + reconciler + sprint
+// scheduler); the supervisor owns the machine-global lock, the registry
+// hot-reload and the HTTP API on :7434. The daemon is stateless — all it
+// knows is re-derived from the filesystem, so killing it never loses data.
 package trackerd
 
 import (
@@ -15,19 +16,26 @@ import (
 	"sync"
 	"time"
 
-	"github.com/busovikov/takos/internal/core"
+	"github.com/fsnotify/fsnotify"
+
 	"github.com/busovikov/takos/internal/fsstore"
-	"github.com/busovikov/takos/internal/watch"
+	"github.com/busovikov/takos/internal/registry"
 )
 
 const (
-	LockFile = ".trackerd.lock"
-	PidFile  = ".trackerd.pid"
-	LogFile  = ".trackerd.log"
+	// Machine-global files under registry.Home() (~/.takos).
+	GlobalLockFile = "trackerd.lock"
+	GlobalPidFile  = "trackerd.pid"
+	GlobalLogFile  = "trackerd.log"
+
+	// Per-workspace flock inside the workspace root. Held by the running
+	// instance; the CLI's sprint catch-up fallback probes exactly this.
+	WorkspaceLockFile = ".trackerd.lock"
 
 	DefaultAddr = "127.0.0.1:7434"
 
-	debounce = 500 * time.Millisecond
+	debounce      = 500 * time.Millisecond
+	retryInterval = 10 * time.Second
 )
 
 // Options tunes a daemon run.
@@ -35,100 +43,173 @@ type Options struct {
 	Addr string // HTTP listen address; "" → DefaultAddr
 }
 
-// Daemon holds the run-time state of one tracker daemon.
+// Daemon supervises the per-workspace instances.
 type Daemon struct {
-	ws   *core.Workspace
-	log  *log.Logger
-	snap map[string]core.HandlerPos // handler name → last known position
+	log       *log.Logger
+	startedAt time.Time
 
 	mu        sync.Mutex
-	startedAt time.Time
-	lastScan  time.Time
-	recent    []string // last repair/validation actions, newest last
+	instances map[string]*instance // by registry name
+	addr      string               // actual HTTP address after listen
 }
 
-// Run starts the daemon in the foreground and blocks until ctx is cancelled.
-// A second daemon on the same workspace fails fast on the flock.
-func Run(ctx context.Context, ws *core.Workspace, opts Options) error {
-	lock, err := fsstore.TryLock(filepath.Join(ws.Root, LockFile))
+// Run starts the daemon in the foreground and blocks until ctx is
+// cancelled. A second daemon on the same machine fails fast on the flock.
+func Run(ctx context.Context, opts Options) error {
+	home := registry.Home()
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return err
+	}
+	lock, err := fsstore.TryLock(filepath.Join(home, GlobalLockFile))
 	if err != nil {
-		return fmt.Errorf("tracker daemon is already running for %s", ws.Root)
+		return fmt.Errorf("tracker daemon is already running (%s)", home)
 	}
 	defer lock.Unlock()
 
-	pidPath := filepath.Join(ws.Root, PidFile)
+	d := &Daemon{
+		log:       log.New(os.Stderr, "", log.LstdFlags),
+		startedAt: time.Now(),
+		instances: map[string]*instance{},
+	}
+
 	addr := opts.Addr
 	if addr == "" {
 		addr = DefaultAddr
 	}
+	srv, err := d.serveHTTP(addr)
+	if err != nil {
+		return err
+	}
+	defer srv.Shutdown(context.Background())
+
+	pidPath := filepath.Join(home, GlobalPidFile)
 	if err := os.WriteFile(pidPath,
-		[]byte(strconv.Itoa(os.Getpid())+"\n"+addr+"\n"), 0o644); err != nil {
+		[]byte(strconv.Itoa(os.Getpid())+"\n"+d.addr+"\n"), 0o644); err != nil {
 		return err
 	}
 	defer os.Remove(pidPath)
+	d.log.Printf("trackerd: pid %d, api %s, registry %s", os.Getpid(), d.addr, registry.Path())
 
-	d := &Daemon{
-		ws:        ws,
-		log:       log.New(os.Stderr, "", log.LstdFlags),
-		startedAt: time.Now(),
-	}
-	d.log.Printf("trackerd: workspace %s, pid %d", ws.Root, os.Getpid())
+	d.reload(ctx)
 
-	// Initial reconciliation covers everything that happened while the
-	// daemon was down (manual moves, overdue sprints, broken symlinks).
-	rep, err := ws.Reconcile(time.Now())
-	if err != nil {
-		return err
-	}
-	d.report(rep.Actions)
-	d.snap = d.snapshot()
+	// Hot-reload: `takos workspace add|remove|use` edits workspaces.yaml —
+	// picked up without a restart. The whole home dir is watched (atomic
+	// writes replace the file); other files there (our own log!) are
+	// filtered out.
+	regEvents, closeWatch := watchRegistry(home, d.log)
+	defer closeWatch()
 
-	w, err := watch.New(ws.Root, debounce)
-	if err != nil {
-		return err
-	}
-	defer w.Close()
-
-	srv := d.serveHTTP(addr)
-	defer srv.Shutdown(context.Background())
-
-	poll := time.Duration(ws.WF.Settings.PollIntervalSec) * time.Second
-	if poll <= 0 {
-		poll = 5 * time.Second
-	}
-	ticker := time.NewTicker(poll)
+	ticker := time.NewTicker(retryInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			d.log.Printf("trackerd: shutting down")
+			d.stopAll()
 			return nil
-		case _, ok := <-w.C:
-			if !ok {
-				return fmt.Errorf("trackerd: watcher closed unexpectedly")
-			}
-			d.scan(false)
+		case <-regEvents:
+			d.reload(ctx)
 		case <-ticker.C:
-			// The poll tick is the fallback for missed fsnotify events and
-			// the sprint scheduler's clock.
-			d.scan(true)
+			// Retry unavailable instances (workspace appeared, lock freed).
+			d.mu.Lock()
+			list := make([]*instance, 0, len(d.instances))
+			for _, in := range d.instances {
+				list = append(list, in)
+			}
+			d.mu.Unlock()
+			for _, in := range list {
+				if !in.running() {
+					in.tryStart(ctx)
+				}
+			}
 		}
 	}
 }
 
-// report logs repair actions and keeps a short tail for /api/status.
-func (d *Daemon) report(actions []string) {
-	if len(actions) == 0 {
+// reload diffs the registry against the running instances: new entries
+// start, removed ones stop, changed roots restart.
+func (d *Daemon) reload(ctx context.Context) {
+	reg, err := registry.Load()
+	if err != nil {
+		d.log.Printf("trackerd: registry: %v", err)
 		return
 	}
+	desired := reg.Entries()
+
+	// The map is mutated under the lock (HTTP reads it); the potentially
+	// slow starts (initial reconcile) happen outside.
+	var toStart []*instance
+	d.mu.Lock()
+	seen := map[string]bool{}
+	for _, e := range desired {
+		seen[e.Name] = true
+		if in, ok := d.instances[e.Name]; ok {
+			if in.root == e.Root {
+				continue
+			}
+			d.log.Printf("trackerd: workspace %s moved %s → %s", e.Name, in.root, e.Root)
+			in.stop()
+		}
+		in := newInstance(e.Name, e.Root, d.log)
+		d.instances[e.Name] = in
+		toStart = append(toStart, in)
+	}
+	for name, in := range d.instances {
+		if !seen[name] {
+			d.log.Printf("trackerd: workspace %s unregistered", name)
+			in.stop()
+			delete(d.instances, name)
+		}
+	}
+	d.mu.Unlock()
+
+	for _, in := range toStart {
+		in.tryStart(ctx)
+	}
+}
+
+func (d *Daemon) stopAll() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	for _, a := range actions {
-		d.log.Printf("trackerd: %s", a)
-		d.recent = append(d.recent, a)
+	for _, in := range d.instances {
+		in.stop()
 	}
-	if n := len(d.recent); n > 50 {
-		d.recent = d.recent[n-50:]
+}
+
+// watchRegistry emits a debounced ping when workspaces.yaml changes.
+func watchRegistry(home string, lg *log.Logger) (<-chan struct{}, func()) {
+	out := make(chan struct{}, 1)
+	fsw, err := fsnotify.NewWatcher()
+	if err != nil || fsw.Add(home) != nil {
+		lg.Printf("trackerd: registry watch unavailable: %v", err)
+		return out, func() {}
 	}
+	done := make(chan struct{})
+	go func() {
+		timer := time.NewTimer(0)
+		if !timer.Stop() {
+			<-timer.C
+		}
+		for {
+			select {
+			case ev, ok := <-fsw.Events:
+				if !ok {
+					return
+				}
+				if filepath.Base(ev.Name) == registry.FileName {
+					timer.Reset(debounce)
+				}
+			case <-timer.C:
+				select {
+				case out <- struct{}{}:
+				default:
+				}
+			case <-fsw.Errors:
+			case <-done:
+				return
+			}
+		}
+	}()
+	return out, func() { close(done); fsw.Close() }
 }

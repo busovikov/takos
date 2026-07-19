@@ -24,6 +24,7 @@ const (
 	scrBacklog
 	scrSprint
 	scrRoles
+	scrWsPick
 )
 
 var (
@@ -61,6 +62,7 @@ type App struct {
 	bl      *backlogState
 	sp      *sprintState
 	rl      *rolesState
+	wp      *wsPickState
 
 	fsw *watch.Watcher // live board: nil when fsnotify is unavailable
 }
@@ -158,6 +160,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.updateSprint(msg)
 	case scrRoles:
 		return a.updateRoles(msg)
+	case scrWsPick:
+		return a.updateWsPick(msg)
 	}
 	return a, nil
 }
@@ -177,6 +181,8 @@ func (a *App) View() string {
 		body = a.viewSprint()
 	case scrRoles:
 		body = a.viewRoles()
+	case scrWsPick:
+		body = a.viewWsPick()
 	}
 	return body
 }

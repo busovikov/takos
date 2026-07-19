@@ -58,6 +58,8 @@ func (a *App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.openBacklog()
 	case "S":
 		a.openSprint()
+	case "W":
+		return a, a.openWsPick()
 	case ",":
 		a.openRoles()
 	}
