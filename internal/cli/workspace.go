@@ -67,7 +67,7 @@ func newWorkspaceAddCmd() *cobra.Command {
 			if entry.Name == reg.Default {
 				ok("%q is now the default workspace", entry.Name)
 			}
-			if daemonRunning() {
+			if trackerCtl.running() {
 				ok("the running daemon picks it up automatically")
 			}
 			return nil
@@ -134,8 +134,8 @@ func newWorkspaceListCmd() *cobra.Command {
 			}
 			// Daemon state per workspace, when the daemon answers.
 			states := map[string]trackerd.WorkspaceSummary{}
-			if daemonRunning() {
-				if _, addr, err := readPidFile(); err == nil {
+			if trackerCtl.running() {
+				if _, addr, err := trackerCtl.readPid(); err == nil {
 					var wss []trackerd.WorkspaceSummary
 					if fetchJSON(addr, "/api/workspaces", &wss) == nil {
 						for _, ws := range wss {

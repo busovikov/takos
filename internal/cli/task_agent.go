@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/busovikov/takos/internal/core"
+	"github.com/busovikov/takos/internal/registry"
 	"github.com/busovikov/takos/internal/runnerd"
 	"github.com/busovikov/takos/internal/session"
 )
@@ -105,9 +107,28 @@ func newTaskAgentCmd() *cobra.Command {
 	return cmd
 }
 
-// startBackground validates the job in-process (refusals reach the user
-// immediately), then detaches a child takos to actually run it.
+// startBackground hands the job to the runner daemon when one is up (its
+// API owns headless runs: job table, cancel, idempotent retries). Without a
+// daemon — or for a workspace the registry cannot name — it falls back to
+// the file mode: validate in-process, detach a child takos to run it.
 func startBackground(ws *core.Workspace, id, role string, forceNew bool) error {
+	if name, registered := registry.NameFor(ws.Root); registered {
+		client, err := runnerd.Connect()
+		if err == nil {
+			info, err := client.Submit(name, id, runnerd.SubmitRequest{
+				Role: role, New: forceNew, ClientToken: runnerd.NewToken(),
+			})
+			if err != nil {
+				return err
+			}
+			ok("headless session %s started (%s, runner daemon, job %s) — takos task logs %s -f",
+				info.Session, info.Role, info.ID, id)
+			return nil
+		}
+		if !errors.Is(err, runnerd.ErrNotRunning) {
+			return err
+		}
+	}
 	job, err := runnerd.PlanJob(ws, id, role, forceNew)
 	if err != nil {
 		return err
@@ -133,7 +154,7 @@ func startBackground(ws *core.Workspace, id, role string, forceNew bool) error {
 }
 
 // newTaskAgentExecCmd is the hidden foreground entry the detached --bg
-// start re-execs; the runner daemon (phase B3) takes this over later.
+// start re-execs — the file fallback when no runner daemon is up.
 func newTaskAgentExecCmd() *cobra.Command {
 	var forceNew bool
 	var role string
