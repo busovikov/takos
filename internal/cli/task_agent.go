@@ -2,13 +2,22 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/busovikov/takos/internal/core"
+	"github.com/busovikov/takos/internal/runnerd"
 	"github.com/busovikov/takos/internal/session"
 )
 
@@ -20,12 +29,12 @@ func newTaskAgentCmd() *cobra.Command {
 		Short: "Run the stage's agent session interactively (--session-id/--resume)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if bg {
-				return fmt.Errorf("background sessions arrive with the runner (phase B) — run without --bg")
-			}
 			ws, err := openWS()
 			if err != nil {
 				return err
+			}
+			if bg {
+				return startBackground(ws, args[0], role, forceNew)
 			}
 			task, pos, plan, err := session.Plan(ws, args[0])
 			if err != nil {
@@ -71,9 +80,71 @@ func newTaskAgentCmd() *cobra.Command {
 			return fmt.Errorf("session %s %s", e.Name, outcome)
 		},
 	}
-	cmd.Flags().BoolVar(&bg, "bg", false, "run in the background (phase B)")
+	cmd.Flags().BoolVar(&bg, "bg", false, "run headless in the background (transcript → task logs)")
 	cmd.Flags().BoolVar(&forceNew, "new", false, "start a fresh session instead of continuing")
 	cmd.Flags().StringVar(&role, "role", "", "role override (default: the stage's role)")
+	return cmd
+}
+
+// startBackground validates the job in-process (refusals reach the user
+// immediately), then detaches a child takos to actually run it.
+func startBackground(ws *core.Workspace, id, role string, forceNew bool) error {
+	job, err := runnerd.PlanJob(ws, id, role, forceNew)
+	if err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	args := []string{"task", "agent-exec", id, "--workspace", ws.Root}
+	if role != "" {
+		args = append(args, "--role", role)
+	}
+	if forceNew {
+		args = append(args, "--new")
+	}
+	child := exec.Command(exe, args...)
+	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := child.Start(); err != nil {
+		return err
+	}
+	ok("headless session %s started (%s) — takos task logs %s -f", job.Name, job.Role, id)
+	return nil
+}
+
+// newTaskAgentExecCmd is the hidden foreground entry the detached --bg
+// start re-execs; the runner daemon (phase B3) takes this over later.
+func newTaskAgentExecCmd() *cobra.Command {
+	var forceNew bool
+	var role string
+	cmd := &cobra.Command{
+		Use:    "agent-exec T-0001",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ws, err := openWSRaw()
+			if err != nil {
+				return err
+			}
+			job, err := runnerd.PlanJob(ws, args[0], role, forceNew)
+			if err != nil {
+				return err
+			}
+			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
+			outcome, err := job.Execute(ctx)
+			if err != nil {
+				return err
+			}
+			if outcome != session.OutcomeFinished {
+				return fmt.Errorf("session %s %s", job.Name, outcome)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&forceNew, "new", false, "")
+	cmd.Flags().StringVar(&role, "role", "", "")
 	return cmd
 }
 
@@ -102,14 +173,62 @@ func newTaskCancelCmd() *cobra.Command {
 }
 
 func newTaskLogsCmd() *cobra.Command {
+	var follow bool
 	cmd := &cobra.Command{
 		Use:   "logs T-0001",
-		Short: "Session log of a background role (phase B)",
+		Short: "Transcript of the task's latest headless session",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("background session logs arrive with the runner (phase B); interactive sessions talk to your terminal directly")
+			ws, err := openWS()
+			if err != nil {
+				return err
+			}
+			taskDir, err := ws.FindTaskDir(args[0])
+			if err != nil {
+				return err
+			}
+			ms := session.Markers(taskDir)
+			// With -f right after `agent --bg` the marker may not exist
+			// yet — give the detached child a moment.
+			for wait := 0; follow && len(ms) == 0 && wait < 30; wait++ {
+				time.Sleep(100 * time.Millisecond)
+				ms = session.Markers(taskDir)
+			}
+			if len(ms) == 0 {
+				return fmt.Errorf("%s has no sessions yet", args[0])
+			}
+			name := ms[len(ms)-1].Name
+			path := filepath.Join(taskDir, session.SessionsDirName, name+".log")
+			if _, err := os.Stat(path); err != nil {
+				return fmt.Errorf("session %s left no transcript (interactive sessions talk to your terminal directly)", name)
+			}
+			return catLog(path, taskDir, follow)
 		},
 	}
-	cmd.Flags().BoolP("follow", "f", false, "follow the log")
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "follow while the session runs")
 	return cmd
+}
+
+// catLog prints a transcript; with follow it keeps reading appended bytes
+// until the session is no longer running.
+func catLog(path, taskDir string, follow bool) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := io.Copy(os.Stdout, f); err != nil {
+		return err
+	}
+	for follow {
+		running := session.Active(taskDir) != nil
+		if _, err := io.Copy(os.Stdout, f); err != nil {
+			return err
+		}
+		if !running {
+			return nil
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return nil
 }

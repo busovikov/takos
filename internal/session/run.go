@@ -128,39 +128,48 @@ func (e *Exec) Command() *exec.Cmd {
 	return cmd
 }
 
-// Begin records the session start: a marker with the live pid and a history
-// line. Called right after the child starts.
-func (e *Exec) Begin(pid int) {
+// Begin records a session start: a marker with the live pid and a history
+// line. actor is "user" for interactive runs, "agent:<role>" for headless
+// ones. Called right after the child starts.
+func Begin(taskDir, actor, name, uuid string, pid int, resume bool) {
 	verb := "start"
-	if e.Resume {
+	if resume {
 		verb = "resume"
 	}
-	writeMarker(e.TaskDir, &Marker{
-		Name: e.Name, UUID: e.UUID, PID: pid, StartedAt: time.Now(),
+	writeMarker(taskDir, &Marker{
+		Name: name, UUID: uuid, PID: pid, StartedAt: time.Now(),
 	})
-	core.AppendHistory(e.TaskDir, "user", "session",
-		fmt.Sprintf("%s %s %s", verb, e.Name, e.UUID))
+	core.AppendHistory(taskDir, actor, "session",
+		fmt.Sprintf("%s %s %s", verb, name, uuid))
 }
 
-// End classifies the exit and records it: exit 0 → finished, anything else
-// (signal from `x`/Ctrl-C, non-zero exit) → interrupted. The limit outcome
-// is written by the headless runner (phase B) which can actually detect it.
-func (e *Exec) End(waitErr error) string {
-	outcome := OutcomeFinished
-	if waitErr != nil {
-		outcome = OutcomeInterrupted
-	}
-	m := Marker{Name: e.Name, UUID: e.UUID, StartedAt: time.Now()}
-	for _, x := range Markers(e.TaskDir) {
-		if x.Name == e.Name {
+// Finish records a session's terminal outcome in the marker and history.
+func Finish(taskDir, actor, name, uuid, outcome string) {
+	m := Marker{Name: name, UUID: uuid, StartedAt: time.Now()}
+	for _, x := range Markers(taskDir) {
+		if x.Name == name {
 			m = x
 			break
 		}
 	}
 	m.EndedAt = time.Now()
 	m.Outcome = outcome
-	writeMarker(e.TaskDir, &m)
-	core.AppendHistory(e.TaskDir, "user", "session", outcome+" "+e.Name)
+	writeMarker(taskDir, &m)
+	core.AppendHistory(taskDir, actor, "session", outcome+" "+name)
+}
+
+// Begin records the interactive session start.
+func (e *Exec) Begin(pid int) { Begin(e.TaskDir, "user", e.Name, e.UUID, pid, e.Resume) }
+
+// End classifies the exit and records it: exit 0 → finished, anything else
+// (signal from `x`/Ctrl-C, non-zero exit) → interrupted. The limit outcome
+// is written by the headless runner which can actually detect it.
+func (e *Exec) End(waitErr error) string {
+	outcome := OutcomeFinished
+	if waitErr != nil {
+		outcome = OutcomeInterrupted
+	}
+	Finish(e.TaskDir, "user", e.Name, e.UUID, outcome)
 	return outcome
 }
 
