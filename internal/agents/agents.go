@@ -6,6 +6,8 @@ package agents
 import (
 	"context"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -76,6 +78,57 @@ func probeVersion(bin string) string {
 		v = v[:40]
 	}
 	return v
+}
+
+// PinnedClaudeVersion is the claude CLI version the headless/interactive
+// argv contract (internal/session, internal/runnerd) was last verified
+// against. `takos doctor` reports a drift so a flag change surfaces before
+// it silently breaks sessions — bump this after re-checking the contract.
+const PinnedClaudeVersion = "2.0.0"
+
+// MinOllamaVersion is the floor for `ollama launch` with the claude
+// integration the live test tier and ollama/* role models rely on.
+const MinOllamaVersion = "0.31.0"
+
+var semverRe = regexp.MustCompile(`\d+\.\d+(\.\d+)?`)
+
+// OllamaVersion runs `ollama --version` and extracts the semver; ok is
+// false when ollama is not installed or its output carries no version.
+func OllamaVersion() (version string, ok bool) {
+	path, err := exec.LookPath("ollama")
+	if err != nil {
+		return "", false
+	}
+	v := probeVersion(path)
+	m := semverRe.FindString(v)
+	if m == "" {
+		return "", false
+	}
+	return m, true
+}
+
+// CompareVersions orders two dotted version strings numerically,
+// component by component (missing trailing components count as 0):
+// -1 a<b, 0 a==b, 1 a>b. Non-numeric components compare as equal (0) —
+// good enough for the semver-ish strings agent CLIs print.
+func CompareVersions(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		var an, bn int
+		if i < len(as) {
+			an, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			bn, _ = strconv.Atoi(bs[i])
+		}
+		if an != bn {
+			if an < bn {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
 }
 
 // ollamaModels lists local models as "ollama/<name>" when ollama is installed.

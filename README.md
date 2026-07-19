@@ -19,11 +19,38 @@ internal/
   fsstore/        atomic writes, locks, frontmatter
   agents/         detection of installed agent CLIs and their models
   trackerd/       tracker daemon: watcher, sprint scheduler, rules
-  runnerd/        headless agent runner (phase B)
+  runnerd/        headless agent runner + daemon (:7433)
+  rules/          automation engine: workflow.yaml rules, failure-path healing
+  registry/       machine-local workspace list (~/.takos/workspaces.yaml)
   tui/            Bubble Tea: board, task card, review carousel
   version/
 web/              web UI (React/TS, phase C)
 ```
+
+## Install
+
+```
+./install.sh          # builds from source, installs to ~/.local/bin
+                       # PREFIX=/usr/local/bin ./install.sh for a system install
+```
+
+Go is the only hard requirement (there is no release pipeline yet, so
+"install" means "build"). Agent CLIs (claude-code, opencode, …) and ollama
+are optional — the script detects them, prints a status line and an
+install hint, and never fails because they're missing. `takos doctor`
+re-runs the same checks (plus workflow.yaml role assignments) any time
+after that.
+
+## Container
+
+```
+docker build -t takos .
+docker run -v takos-data:/data -e OLLAMA_HOST=host.docker.internal:11434 takos
+```
+
+The image ships only the takos binary; bring your own agent CLI on top
+(`RUN npm i -g @anthropic-ai/claude-code` in a derived image, or a bind
+mount). ollama stays on the host — see the Dockerfile's comment.
 
 ## Development
 
