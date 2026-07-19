@@ -22,6 +22,15 @@ const (
 	AreaArchive = "archive"
 )
 
+// HandlerID extracts "T-0005" from a handler path ".../T-0005-slug".
+func HandlerID(path string) string { return handlerID(path) }
+
+// RelinkHandler is the exported form of relinkHandler for the daemon's
+// rollback of invalid manual moves.
+func RelinkHandler(oldPath, destDir, tasksDir string) error {
+	return relinkHandler(oldPath, destDir, tasksDir)
+}
+
 // handlerID extracts "T-0005" from a handler path ".../T-0005-slug".
 func handlerID(path string) string {
 	base := filepath.Base(path)

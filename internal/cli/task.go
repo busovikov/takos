@@ -25,6 +25,7 @@ func newTaskCmd() *cobra.Command {
 		newTaskSprintCmd(),
 		newTaskWorkflowCmd(),
 		newTaskRoleCmd(),
+		newTaskDaemonCmd(),
 	)
 	return cmd
 }

@@ -32,42 +32,8 @@ func (ws *Workspace) MoveTask(id, to, actor, destSprint string) (*MoveResult, er
 	}
 	from := pos.Stage
 
-	if pos.Area == AreaArchive {
-		return nil, fmt.Errorf("%s: task is archived (%s) — moves are not allowed", id, pos.Sprint)
-	}
-	if from == to {
-		return nil, fmt.Errorf("%s is already in %s", id, to)
-	}
-
-	// Untriaged review findings block every move.
-	if n, err := OpenReviewCount(taskDir); err != nil {
+	if err := ws.ValidateMove(id, taskDir, pos, to, actor); err != nil {
 		return nil, err
-	} else if n > 0 {
-		return nil, fmt.Errorf("%s: %s → %s — %d review findings still open (takos task review %s)",
-			id, from, to, n, id)
-	}
-
-	// Is the transition allowed.
-	if to == Backlog {
-		// Any stage may go back to the backlog (a deliberate action,
-		// confirmed in the TUI).
-	} else {
-		if _, ok := ws.WF.StageIndex(to); !ok {
-			return nil, fmt.Errorf("unknown stage %q", to)
-		}
-		allowed, manual := ws.WF.TransitionAllowed(from, to)
-		if !allowed {
-			return nil, fmt.Errorf("%s: transition %s → %s is not allowed by the workflow", id, from, to)
-		}
-		if actor == "user" && !manual {
-			return nil, fmt.Errorf("%s: transition %s → %s is automation-only", id, from, to)
-		}
-		// Entry gates (needs): a file glob inside the task folder or check:<name>.
-		for _, need := range ws.stageByID(to).Needs {
-			if err := ws.checkNeed(taskDir, need); err != nil {
-				return nil, fmt.Errorf("%s: %s → %s — %w", id, from, to, err)
-			}
-		}
 	}
 
 	// Target directory.
@@ -78,12 +44,7 @@ func (ws *Workspace) MoveTask(id, to, actor, destSprint string) (*MoveResult, er
 
 	// Scaffold of the target stage (created before the move — crash-safe).
 	if to != Backlog {
-		for _, f := range ws.stageByID(to).Scaffold {
-			p := filepath.Join(taskDir, f)
-			if _, err := os.Stat(p); os.IsNotExist(err) {
-				os.WriteFile(p, nil, 0o644)
-			}
-		}
+		ws.ScaffoldStage(taskDir, to)
 	}
 
 	if err := relinkHandler(pos.Path, destDir, ws.TasksDir()); err != nil {
@@ -91,6 +52,64 @@ func (ws *Workspace) MoveTask(id, to, actor, destSprint string) (*MoveResult, er
 	}
 	AppendHistory(taskDir, actor, "move", fmt.Sprintf("%s -> %s", from, to))
 	return &MoveResult{ID: id, From: from, To: to}, nil
+}
+
+// ValidateMove checks every rule guarding a transition of the task's handler
+// to stage `to` (or the backlog) without touching the filesystem. MoveTask and
+// the daemon's manual-mv validation share it, so a Tab in the TUI, a CLI move
+// and an external `mv` are judged by exactly the same rules.
+func (ws *Workspace) ValidateMove(id, taskDir string, pos *HandlerPos, to, actor string) error {
+	from := pos.Stage
+
+	if pos.Area == AreaArchive {
+		return fmt.Errorf("%s: task is archived (%s) — moves are not allowed", id, pos.Sprint)
+	}
+	if from == to {
+		return fmt.Errorf("%s is already in %s", id, to)
+	}
+
+	// Untriaged review findings block every move.
+	if n, err := OpenReviewCount(taskDir); err != nil {
+		return err
+	} else if n > 0 {
+		return fmt.Errorf("%s: %s → %s — %d review findings still open (takos task review %s)",
+			id, from, to, n, id)
+	}
+
+	if to == Backlog {
+		// Any stage may go back to the backlog (a deliberate action,
+		// confirmed in the TUI).
+		return nil
+	}
+	if _, ok := ws.WF.StageIndex(to); !ok {
+		return fmt.Errorf("unknown stage %q", to)
+	}
+	allowed, manual := ws.WF.TransitionAllowed(from, to)
+	if !allowed {
+		return fmt.Errorf("%s: transition %s → %s is not allowed by the workflow", id, from, to)
+	}
+	if actor == "user" && !manual {
+		return fmt.Errorf("%s: transition %s → %s is automation-only", id, from, to)
+	}
+	// Entry gates (needs): a file glob inside the task folder or check:<name>.
+	for _, need := range ws.stageByID(to).Needs {
+		if err := ws.checkNeed(taskDir, need); err != nil {
+			return fmt.Errorf("%s: %s → %s — %w", id, from, to, err)
+		}
+	}
+	return nil
+}
+
+// ScaffoldStage creates the stage's scaffold files inside the task folder
+// (empty, only when missing). Used on entry by MoveTask and by the daemon
+// after accepting an external mv.
+func (ws *Workspace) ScaffoldStage(taskDir, stage string) {
+	for _, f := range ws.stageByID(stage).Scaffold {
+		p := filepath.Join(taskDir, f)
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			os.WriteFile(p, nil, 0o644)
+		}
+	}
 }
 
 func (ws *Workspace) stageByID(id string) *Stage {
