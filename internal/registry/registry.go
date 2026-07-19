@@ -171,6 +171,36 @@ func (r *Registry) Entries() []Entry {
 	return r.Workspaces
 }
 
+// NameFor maps a workspace root to its registry name (the implicit single
+// default workspace counts); ok=false means the root is not registered, so
+// name-addressed daemon APIs cannot reach it.
+func NameFor(root string) (string, bool) {
+	reg, err := Load()
+	if err != nil {
+		return "", false
+	}
+	want := canonPath(root)
+	for _, e := range reg.Entries() {
+		if canonPath(e.Root) == want {
+			return e.Name, true
+		}
+	}
+	return "", false
+}
+
+// canonPath normalizes a path for identity comparison: home expansion,
+// absolutization, symlink resolution.
+func canonPath(p string) string {
+	abs, err := filepath.Abs(expandHome(p))
+	if err != nil {
+		return p
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	return abs
+}
+
 // Resolve maps a --workspace value (registry name or path) to a workspace
 // root. Precedence with an empty flag: $TAKOS_WORKSPACE → registry default
 // → ~/.takos/workspace.

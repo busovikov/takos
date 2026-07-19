@@ -1,8 +1,9 @@
 // Package runnerd is the headless runner: adapters translate a role run
 // into an agent CLI invocation, the job executor streams the transcript to
-// a file in real time and classifies how the session ended. The daemon
-// around it (:7433, API, idempotency) arrives in phase B3 — this package is
-// the machinery both the daemon and the CLI file-fallback share.
+// a file in real time and classifies how the session ended. Around that
+// machinery lives the runner daemon (:7433) with its job API and
+// clientToken idempotency; the CLI uses the same executor directly as the
+// file fallback when no daemon is up.
 package runnerd
 
 import (
