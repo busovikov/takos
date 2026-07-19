@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/busovikov/takos/internal/core"
+	"github.com/busovikov/takos/internal/watch"
 )
 
 type screen int
@@ -60,6 +61,8 @@ type App struct {
 	bl      *backlogState
 	sp      *sprintState
 	rl      *rolesState
+
+	fsw *watch.Watcher // live board: nil when fsnotify is unavailable
 }
 
 type row struct {
@@ -69,16 +72,36 @@ type row struct {
 
 type clearStatusMsg struct{ id int }
 type editorDoneMsg struct{}
+type fsChangedMsg struct{}
 
 // Run starts the TUI over an opened workspace.
 func Run(ws *core.Workspace, repo string) error {
 	a := &App{ws: ws, repo: repo}
 	a.reload()
+	// Live board: external mv and daemon rules redraw the staircase. The
+	// TUI stays functional without the watcher (reloads on own actions).
+	if w, err := watch.New(ws.Root, 300*time.Millisecond); err == nil {
+		a.fsw = w
+		defer w.Close()
+	}
 	_, err := tea.NewProgram(a, tea.WithAltScreen()).Run()
 	return err
 }
 
-func (a *App) Init() tea.Cmd { return nil }
+func (a *App) Init() tea.Cmd { return a.waitFs() }
+
+// waitFs arms a one-shot wait on the watcher channel.
+func (a *App) waitFs() tea.Cmd {
+	if a.fsw == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		if _, ok := <-a.fsw.C; !ok {
+			return nil
+		}
+		return fsChangedMsg{}
+	}
+}
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
@@ -96,6 +119,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.openCard(a.card.id)
 		}
 		return a, nil
+	case fsChangedMsg:
+		// Live board: an external mv or a daemon rule changed the
+		// workspace — re-read the filesystem and redraw. Modal input and
+		// the triage carousel are left alone mid-flow.
+		a.reload()
+		if a.prompt == nil && a.confirm == nil {
+			switch a.scr {
+			case scrCard:
+				if a.card != nil {
+					a.openCard(a.card.id)
+				}
+			case scrBacklog:
+				a.refreshBacklog()
+			}
+		}
+		return a, a.waitFs()
 	}
 
 	// Modal layers first: confirm, then prompt.
