@@ -29,7 +29,7 @@ func TestHandoffRegenBeforeSecondSession(t *testing.T) {
 	ws, task := newRunnerWS(t)
 	id := task.Meta.ID
 
-	first, err := PlanJob(ws, id, "", false)
+	first, err := PlanJob(ws, id, JobOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestHandoffRegenBeforeSecondSession(t *testing.T) {
 		t.Fatalf("first run: %s", outcome)
 	}
 
-	second, err := PlanJob(ws, id, "", false)
+	second, err := PlanJob(ws, id, JobOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,10 +86,10 @@ exit 0`)
 	ws, task := newRunnerWS(t)
 	id := task.Meta.ID
 
-	first, _ := PlanJob(ws, id, "", false)
+	first, _ := PlanJob(ws, id, JobOpts{})
 	first.Execute(context.Background())
 
-	second, _ := PlanJob(ws, id, "", false)
+	second, _ := PlanJob(ws, id, JobOpts{})
 	outcome, err := second.Execute(context.Background())
 	if outcome != session.OutcomeLimit || err == nil {
 		t.Fatalf("limited digest must block the session: %s, %v", outcome, err)
@@ -99,7 +99,7 @@ exit 0`)
 		t.Error("the main session started despite the digest limit")
 	}
 
-	third, err := PlanJob(ws, id, "", false)
+	third, err := PlanJob(ws, id, JobOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestHandoffSeedsFirstImplementationSession(t *testing.T) {
 		t.Errorf("hand-off.md not scaffolded on entering implementation: %v", err)
 	}
 
-	job, err := PlanJob(ws, id, "", false)
+	job, err := PlanJob(ws, id, JobOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}

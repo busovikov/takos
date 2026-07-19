@@ -104,6 +104,10 @@ func triage(ws *core.Workspace, taskDir, id, itemID string,
 		target := "done"
 		if v == "rework" {
 			target = "implementation"
+			// The executor's next session opens on the rework findings.
+			if err := core.AppendReworkToHandoff(taskDir, path, round); err == nil {
+				ok("rework findings → hand-off.md (From review)")
+			}
 		}
 		if res, err := ws.MoveTask(id, target, "engine", ""); err == nil {
 			ok("%s → %s", res.ID, res.To)

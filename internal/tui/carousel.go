@@ -90,6 +90,8 @@ func (a *App) triage(st core.ReviewStatus) tea.Cmd {
 		target := "done"
 		if v == "rework" {
 			target = "implementation"
+			// The executor's next session opens on the rework findings.
+			core.AppendReworkToHandoff(c.task.Dir, c.roundPath, c.round)
 		}
 		id := c.id
 		if res, err := a.ws.MoveTask(id, target, "engine", ""); err == nil {

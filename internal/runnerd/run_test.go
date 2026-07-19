@@ -47,7 +47,7 @@ func TestJobFinishedTranscriptAndHistory(t *testing.T) {
 	mockAgent(t, "echo 'step one'\necho 'step two'\nexit 0")
 	ws, task := newRunnerWS(t)
 
-	job, err := PlanJob(ws, task.Meta.ID, "", false)
+	job, err := PlanJob(ws, task.Meta.ID, JobOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,14 +84,14 @@ func TestJobLimitThenAutoResume(t *testing.T) {
 	mockAgent(t, "echo 'You have hit your usage limit.'\nexit 1")
 	ws, task := newRunnerWS(t)
 
-	job, _ := PlanJob(ws, task.Meta.ID, "", false)
+	job, _ := PlanJob(ws, task.Meta.ID, JobOpts{})
 	outcome, err := job.Execute(context.Background())
 	if err != nil || outcome != session.OutcomeLimit {
 		t.Fatalf("limit run: %s, %v", outcome, err)
 	}
 
 	// The policy resumes the same session — and refuses forceNew.
-	next, err := PlanJob(ws, task.Meta.ID, "", false)
+	next, err := PlanJob(ws, task.Meta.ID, JobOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestJobLimitThenAutoResume(t *testing.T) {
 	if strings.Contains(strings.Join(next.Argv, " "), "--session-id") {
 		t.Errorf("resume argv must use --resume: %q", next.Argv)
 	}
-	if _, err := PlanJob(ws, task.Meta.ID, "", true); err == nil {
+	if _, err := PlanJob(ws, task.Meta.ID, JobOpts{ForceNew: true}); err == nil {
 		t.Error("forceNew after limit must be refused")
 	}
 }
@@ -110,7 +110,7 @@ func TestJobStreamsWhileRunning(t *testing.T) {
 	mockAgent(t, "echo 'early line'\nwhile true; do sleep 0.1; done")
 	ws, task := newRunnerWS(t)
 
-	job, _ := PlanJob(ws, task.Meta.ID, "", false)
+	job, _ := PlanJob(ws, task.Meta.ID, JobOpts{})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan string, 1)
 	go func() {
@@ -143,7 +143,7 @@ func TestJobCrashSafety(t *testing.T) {
 	mockAgent(t, "echo 'partial work saved'\nwhile true; do sleep 0.1; done")
 	ws, task := newRunnerWS(t)
 
-	job, _ := PlanJob(ws, task.Meta.ID, "", false)
+	job, _ := PlanJob(ws, task.Meta.ID, JobOpts{})
 	done := make(chan string, 1)
 	go func() {
 		outcome, _ := job.Execute(context.Background())
@@ -170,7 +170,7 @@ func TestJobCrashSafety(t *testing.T) {
 		t.Errorf("partial transcript lost: %q", data)
 	}
 	// The next entry offers to continue the interrupted session.
-	next, err := PlanJob(ws, task.Meta.ID, "", false)
+	next, err := PlanJob(ws, task.Meta.ID, JobOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}

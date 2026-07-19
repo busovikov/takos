@@ -14,8 +14,9 @@ import (
 
 // SubmitRequest is the POST /api/ws/{name}/tasks/{task}/sessions body.
 type SubmitRequest struct {
-	Role string `json:"role,omitempty"` // role override (default: the stage's role)
-	New  bool   `json:"new,omitempty"`  // force a fresh generation
+	Role        string `json:"role,omitempty"`        // role override (default: the stage's role)
+	New         bool   `json:"new,omitempty"`         // force a fresh generation
+	PromptExtra string `json:"promptExtra,omitempty"` // fills the {{promptExtra}} prompt token
 	// ClientToken makes the submit idempotent: a retry with the same token
 	// returns the recorded job instead of starting a second one.
 	ClientToken string `json:"clientToken,omitempty"`

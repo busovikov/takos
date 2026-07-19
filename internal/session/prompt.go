@@ -25,7 +25,8 @@ Read {{task.dir}}/task.md (Objective, Context) before doing anything.`
 
 // Prompt renders the opening prompt of a fresh session: the role's template
 // from workflow.yaml (or a generic one) with {{…}} variables expanded.
-func Prompt(ws *core.Workspace, task *core.Task, taskDir, role string) string {
+// extra fills the {{promptExtra}} token (rule-supplied addition).
+func Prompt(ws *core.Workspace, task *core.Task, taskDir, role, extra string) string {
 	tpl := genericPrompt
 	if role != "" {
 		if r, ok := ws.WF.Roles[role]; ok && strings.TrimSpace(r.Prompt) != "" {
@@ -41,7 +42,7 @@ func Prompt(ws *core.Workspace, task *core.Task, taskDir, role string) string {
 		"task.title":  task.Meta.Title,
 		"task.dir":    taskDir,
 		"task.repo":   task.Meta.Repo,
-		"promptExtra": "",
+		"promptExtra": extra,
 		"round":       round,
 		"target":      "",
 	}))

@@ -37,26 +37,33 @@ type Job struct {
 	adapter Adapter
 }
 
+// JobOpts tunes a headless run plan.
+type JobOpts struct {
+	Role        string // role override (default: the stage's role)
+	ForceNew    bool   // start a fresh generation instead of continuing
+	PromptExtra string // rule-supplied addition for the {{promptExtra}} token
+}
+
 // PlanJob resolves the entry policy for a headless run. With nobody at the
 // keyboard the interactive "ask" collapses to resume (continue the
-// interrupted session); forceNew starts a fresh generation instead. A limit
-// verdict always resumes — forceNew is refused, same as interactively.
-func PlanJob(ws *core.Workspace, id, roleOverride string, forceNew bool) (*Job, error) {
+// interrupted session); ForceNew starts a fresh generation instead. A limit
+// verdict always resumes — ForceNew is refused, same as interactively.
+func PlanJob(ws *core.Workspace, id string, opts JobOpts) (*Job, error) {
 	task, pos, plan, err := session.Plan(ws, id)
 	if err != nil {
 		return nil, err
 	}
-	if plan.Mode == session.ModeResume && forceNew {
+	if plan.Mode == session.ModeResume && opts.ForceNew {
 		return nil, fmt.Errorf("%s hit its limit — resuming is the only way in", plan.ResumeName)
 	}
-	resume := plan.Mode == session.ModeResume || (plan.Mode == session.ModeAsk && !forceNew)
+	resume := plan.Mode == session.ModeResume || (plan.Mode == session.ModeAsk && !opts.ForceNew)
 
-	role := roleOverride
+	role := opts.Role
 	if role == "" {
 		role = session.RoleForStage(pos.Stage)
 	}
 	j, err := newJob(ws, task, pos.Stage, role, plan, resume,
-		session.Prompt(ws, task, task.Dir, role))
+		session.Prompt(ws, task, task.Dir, role, opts.PromptExtra))
 	if err != nil {
 		return nil, err
 	}

@@ -165,7 +165,7 @@ func (d *Daemon) submit(wsName, taskID string, req SubmitRequest) (JobInfo, int,
 	if err != nil {
 		return JobInfo{}, http.StatusConflict, err
 	}
-	job, err := PlanJob(ws, taskID, req.Role, req.New)
+	job, err := PlanJob(ws, taskID, JobOpts{Role: req.Role, ForceNew: req.New, PromptExtra: req.PromptExtra})
 	if err != nil {
 		return JobInfo{}, http.StatusConflict, err
 	}

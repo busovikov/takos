@@ -34,6 +34,12 @@ func (in *instance) scan(withSprints bool) {
 		actions = append(actions, rep.Actions...)
 	}
 
+	// The automation engine reacts to whatever the history now says:
+	// entered stages, finished sessions, checks.
+	if in.engine != nil {
+		actions = append(actions, in.engine.Scan(in.ctx)...)
+	}
+
 	in.snap = in.snapshot()
 	in.mu.Lock()
 	in.lastScan = now
@@ -74,6 +80,16 @@ func (in *instance) validateExternalMoves(old, cur map[string]core.HandlerPos) [
 		taskDir, err := in.ws.FindTaskDir(id)
 		if err != nil {
 			continue // orphan handler — the reconciler removes it
+		}
+
+		// A move takos itself performed (CLI, TUI, a rule) is already
+		// validated and recorded; re-logging it as a manual mv would plant a
+		// duplicate history event — and a second trigger for the rules
+		// engine. Only gestures without a matching record are manual.
+		if events, err := core.ReadHistory(taskDir); err == nil {
+			if last, ok := core.LastMove(events); ok && last == np.Stage && op.Stage != np.Stage {
+				continue
+			}
 		}
 
 		if op.Stage == np.Stage {
