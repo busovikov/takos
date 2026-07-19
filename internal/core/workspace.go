@@ -92,6 +92,8 @@ settings:
   pollIntervalSec: 5
   ruleBudgetPerTaskPerHour: 20
   sprintLengthDays: 14
+  limitRetryMinutes: 15   # resume a limit-hit session after this pause
+  sessionMaxRetries: 2    # crash resumes before the task's automation pauses
 
 stages:
   - id: refinement

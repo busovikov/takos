@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -71,6 +72,60 @@ func PlanJob(ws *core.Workspace, id string, opts JobOpts) (*Job, error) {
 		if j.Pre, err = HandoffJob(ws, task, pos.Stage, plan.Reason); err != nil {
 			return nil, err
 		}
+	}
+	return j, nil
+}
+
+// ResumeJob rebuilds the headless job that continues an existing session,
+// addressed by its exact name — the failure paths (limit, crash) re-enter
+// precisely the session they left, pseudo-stage digests included, where
+// PlanJob only knows the current stage's sessions.
+func ResumeJob(ws *core.Workspace, id, sessionName, role string) (*Job, error) {
+	taskDir, err := ws.FindTaskDir(id)
+	if err != nil {
+		return nil, err
+	}
+	task, err := core.LoadTask(taskDir)
+	if err != nil {
+		return nil, err
+	}
+	pos, err := ws.FindHandler(id)
+	if err != nil {
+		return nil, err
+	}
+	if pos.Area == core.AreaArchive {
+		return nil, fmt.Errorf("%s is archived (%s) — no sessions", id, pos.Sprint)
+	}
+	stage := session.StageOf(task.Meta.ID, sessionName)
+	if stage == "" {
+		return nil, fmt.Errorf("%q is not a session of %s", sessionName, task.Meta.ID)
+	}
+	session.RepairStale(taskDir)
+	if m := session.Active(taskDir); m != nil {
+		return nil, fmt.Errorf("session %s is already running (pid %d)", m.Name, m.PID)
+	}
+	known := false
+	for _, m := range session.Markers(taskDir) {
+		if m.Name == sessionName {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return nil, fmt.Errorf("session %s left no marker — nothing to resume", sessionName)
+	}
+
+	plan := session.EntryPlan{
+		Mode: session.ModeResume, Reason: session.OutcomeLimit,
+		ResumeName: sessionName, ResumeUUID: session.UUID(sessionName),
+	}
+	j, err := newJob(ws, task, stage, role, plan, true, "")
+	if err != nil {
+		return nil, err
+	}
+	if strings.HasSuffix(stage, "-handoff") {
+		// A digest lives in the task folder — that is the summarizer's cwd.
+		j.Dir = task.Dir
 	}
 	return j, nil
 }

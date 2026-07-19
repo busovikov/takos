@@ -29,6 +29,11 @@ type Settings struct {
 	PollIntervalSec       int `yaml:"pollIntervalSec"`
 	RuleBudgetPerTaskHour int `yaml:"ruleBudgetPerTaskPerHour"`
 	SprintLengthDays      int `yaml:"sprintLengthDays"`
+
+	// Failure paths of headless sessions (0 → the engine's defaults).
+	LimitRetryMinutes    int `yaml:"limitRetryMinutes,omitempty"`    // pause before resuming a limited session (15)
+	SessionMaxRetries    int `yaml:"sessionMaxRetries,omitempty"`    // crash resumes before automation pauses (2)
+	SessionRetryDelaySec int `yaml:"sessionRetryDelaySec,omitempty"` // pause before resuming a crashed session (30)
 }
 
 type Stage struct {

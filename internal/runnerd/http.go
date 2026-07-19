@@ -17,6 +17,9 @@ type SubmitRequest struct {
 	Role        string `json:"role,omitempty"`        // role override (default: the stage's role)
 	New         bool   `json:"new,omitempty"`         // force a fresh generation
 	PromptExtra string `json:"promptExtra,omitempty"` // fills the {{promptExtra}} prompt token
+	// Session resumes this exact session by name (failure paths: limit,
+	// crash) instead of planning an entry into the current stage.
+	Session string `json:"session,omitempty"`
 	// ClientToken makes the submit idempotent: a retry with the same token
 	// returns the recorded job instead of starting a second one.
 	ClientToken string `json:"clientToken,omitempty"`

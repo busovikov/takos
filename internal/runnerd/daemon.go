@@ -165,7 +165,12 @@ func (d *Daemon) submit(wsName, taskID string, req SubmitRequest) (JobInfo, int,
 	if err != nil {
 		return JobInfo{}, http.StatusConflict, err
 	}
-	job, err := PlanJob(ws, taskID, JobOpts{Role: req.Role, ForceNew: req.New, PromptExtra: req.PromptExtra})
+	var job *Job
+	if req.Session != "" {
+		job, err = ResumeJob(ws, taskID, req.Session, req.Role)
+	} else {
+		job, err = PlanJob(ws, taskID, JobOpts{Role: req.Role, ForceNew: req.New, PromptExtra: req.PromptExtra})
+	}
 	if err != nil {
 		return JobInfo{}, http.StatusConflict, err
 	}
