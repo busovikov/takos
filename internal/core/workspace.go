@@ -99,6 +99,7 @@ stages:
     scaffold: [plan.md]
   - id: implementation
     needs: ["check:plan-resolved"]
+    scaffold: [hand-off.md]
   - id: review
   - id: done
 
@@ -131,6 +132,10 @@ roles:
       not revisit them without a reason). Write a step-by-step plan to
       {{task.dir}}/plan.md. Do not modify any code. {{promptExtra}}
     outputs: [plan.md]
+    handoff: |
+      ## Decisions
+      ## Rejected
+      ## Open questions
   executor:
     agent: claude-code
     permissionMode: auto
@@ -138,6 +143,11 @@ roles:
       Implement task {{task.id}} following {{task.dir}}/plan.md.
       First read {{task.dir}}/hand-off.md (previous progress, the
       "From review" section). Run the tests. {{promptExtra}}
+    handoff: |
+      ## Done
+      ## Repo state
+      ## Next
+      ## From review
   handover:
     agent: claude-code
     permissionMode: auto
@@ -156,11 +166,18 @@ roles:
       modify any code.
   summarizer:
     agent: claude-code
-    permissionMode: safe
+    permissionMode: auto
     prompt: |
-      Condense the session materials of task {{task.id}} into the hand-off
-      file {{target}}. Use the role's section template. Be brief; verified
-      facts only.
+      Regenerate the hand-off digest of task {{task.id}} "{{task.title}}".
+      Rewrite {{target}} from the materials in {{task.dir}}: session
+      transcripts under sessions/, the artifacts (plan.md, reviews/),
+      history.log and the current digest content. Keep exactly this
+      section skeleton:
+
+      {{template}}
+
+      Be brief: verified facts only, no speculation. Do not touch any
+      other file.
 
 rules:
   - id: context-on-planning

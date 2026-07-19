@@ -141,7 +141,7 @@ func TestMockNewGenerationAfterFinished(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Mode != ModeNew || plan.NewGen != 2 || !plan.RegenHandoff {
+	if plan.Mode != ModeNew || plan.NewGen != 2 {
 		t.Fatalf("after finished: %+v", plan)
 	}
 	mustPlanAndBuild(t, ws, id, false).Run()

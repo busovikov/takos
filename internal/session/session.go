@@ -69,10 +69,6 @@ type EntryPlan struct {
 	// The session to continue (ModeResume, or ModeAsk resolved to "continue").
 	ResumeName string
 	ResumeUUID string
-
-	// RegenHandoff marks that a hand-off digest should be regenerated
-	// before the fresh session (the summarizer role does that in phase B2).
-	RegenHandoff bool
 }
 
 // PlanEntry folds history.log into the entry decision for one task+stage:
@@ -92,7 +88,6 @@ func PlanEntry(events []core.HistoryEvent, taskID, stage string) EntryPlan {
 		return EntryPlan{
 			Mode: ModeNew, Reason: reason,
 			NewName: name, NewUUID: UUID(name), NewGen: gen,
-			RegenHandoff: reason != "first",
 		}
 	}
 	if maxGen == 0 {
