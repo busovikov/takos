@@ -10,6 +10,7 @@ import (
 
 	"github.com/busovikov/takos/internal/core"
 	"github.com/busovikov/takos/internal/fsstore"
+	"github.com/busovikov/takos/internal/registry"
 	"github.com/busovikov/takos/internal/trackerd"
 )
 
@@ -26,21 +27,22 @@ func openWS() (*core.Workspace, error) {
 	return ws, nil
 }
 
-// openWSRaw opens the workspace without side effects (daemon commands and
-// the daemon itself must not race the scheduler).
+// openWSRaw opens the workspace without side effects. The --workspace value
+// may be a registry name or a path; empty falls back to $TAKOS_WORKSPACE →
+// registry default → ~/.takos/workspace.
 func openWSRaw() (*core.Workspace, error) {
-	root := workspaceFlag
-	if root == "" {
-		root = core.DefaultRoot()
+	root, err := registry.Resolve(workspaceFlag)
+	if err != nil {
+		return nil, err
 	}
 	return core.Open(root)
 }
 
 // catchUpSprints closes an overdue active sprint on plain CLI start — the
-// scheduler's fallback when no daemon is around. When the daemon holds the
-// lock it is its job; best-effort otherwise.
+// scheduler's fallback when no daemon is around. When the daemon's instance
+// holds the workspace lock it is its job; best-effort otherwise.
 func catchUpSprints(ws *core.Workspace) {
-	lock, err := fsstore.TryLock(filepath.Join(ws.Root, trackerd.LockFile))
+	lock, err := fsstore.TryLock(filepath.Join(ws.Root, trackerd.WorkspaceLockFile))
 	if err != nil {
 		return // the daemon is running and keeps the schedule itself
 	}
