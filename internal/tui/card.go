@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/busovikov/takos/internal/core"
+	"github.com/busovikov/takos/internal/session"
 )
 
 // The task card: sections on top, a contextual action menu with a cursor and
@@ -60,6 +61,47 @@ func (a *App) openCard(id string) {
 func (a *App) buildCardMenu() {
 	c := a.card
 	var m []menuItem
+
+	// Agent session actions: contextual per the entry policy; the
+	// recommended action goes first.
+	if c.pos.Area != core.AreaArchive && c.pos.Stage != core.Backlog {
+		if active := session.Active(c.task.Dir); active != nil {
+			name, pid := active.Name, active.PID
+			m = append(m, menuItem{"x", fmt.Sprintf("interrupt session %s (pid %d)", name, pid),
+				func(a *App) tea.Cmd {
+					a.confirm = &confirmState{
+						text: fmt.Sprintf("interrupt session %s?", name),
+						yes: func(a *App) tea.Cmd {
+							if _, err := session.Cancel(c.task.Dir); err != nil {
+								return a.flash(stErr, "✗ %v", err)
+							}
+							a.openCard(c.id)
+							return a.flash(stOK, "✔ SIGTERM → %s", name)
+						},
+					}
+					return nil
+				}})
+		} else if events, err := core.ReadHistory(c.task.Dir); err == nil {
+			id := c.id
+			switch plan := session.PlanEntry(events, c.id, c.pos.Stage); plan.Mode {
+			case session.ModeResume:
+				m = append(m, menuItem{"a", fmt.Sprintf("continue session %s (limit → resume)", plan.ResumeName),
+					func(a *App) tea.Cmd { return a.buildSession(id, true, false) }})
+			case session.ModeAsk:
+				m = append(m, menuItem{"a", fmt.Sprintf("continue interrupted session %s", plan.ResumeName),
+					func(a *App) tea.Cmd { return a.buildSession(id, true, false) }})
+				m = append(m, menuItem{"n", fmt.Sprintf("new session #%d instead", plan.NewGen),
+					func(a *App) tea.Cmd { return a.buildSession(id, false, true) }})
+			default:
+				role := session.RoleForStage(c.pos.Stage)
+				if role == "" {
+					role = "agent"
+				}
+				m = append(m, menuItem{"a", fmt.Sprintf("%s session (new #%d)", role, plan.NewGen),
+					func(a *App) tea.Cmd { return a.buildSession(id, false, false) }})
+			}
+		}
+	}
 
 	if c.round != nil {
 		open := c.round.Counts()[core.ReviewOpen]
@@ -219,6 +261,9 @@ func (a *App) viewCard() string {
 	}
 	if len(facts) > 0 {
 		fmt.Fprintf(&b, "\n %s %s\n", stDim.Render("FILES"), strings.Join(facts, " · "))
+	}
+	if line := sessionLine(c.task.Dir); line != "" {
+		fmt.Fprintf(&b, " %s %s\n", stDim.Render("SESSION"), line)
 	}
 
 	// History tail.
