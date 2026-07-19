@@ -167,7 +167,11 @@ func (a *App) viewBoard() string {
 	}
 	for i, r := range a.rows {
 		indent := strings.Repeat(" ", r.StageIdx*step)
-		text := fmt.Sprintf("%s %s %s", r.ID, r.Prio, truncate(r.Title, 44))
+		title := truncate(r.Title, 44)
+		if r.Running {
+			title = "▶ " + title // a live agent session
+		}
+		text := fmt.Sprintf("%s %s %s", r.ID, r.Prio, title)
 		if i == a.cur {
 			b.WriteString(" " + stAccent.Render("❯") + indent + stSel.Render(text) + "\n")
 		} else {

@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/busovikov/takos/internal/core"
+	"github.com/busovikov/takos/internal/session"
 	"github.com/busovikov/takos/internal/watch"
 )
 
@@ -70,6 +71,7 @@ type App struct {
 type row struct {
 	ID, Title, Prio, Stage, Sprint, Area, Dir string
 	StageIdx                                  int
+	Running                                   bool // a live agent session (▶)
 }
 
 type clearStatusMsg struct{ id int }
@@ -119,6 +121,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.reload()
 		if a.scr == scrCard && a.card != nil {
 			a.openCard(a.card.id)
+		}
+		return a, nil
+	case sessionDoneMsg:
+		// The agent session ended — rescan and return to the card, per the
+		// contract "exit → the card with a rescan".
+		a.reload()
+		a.openCard(m.id)
+		if a.card != nil && a.card.id == m.id {
+			if line := sessionLine(a.card.task.Dir); line != "" {
+				return a, a.flash(stDim, "%s", line)
+			}
 		}
 		return a, nil
 	case fsChangedMsg:
@@ -239,6 +252,7 @@ func (a *App) rowFor(h core.HandlerPos) (row, bool) {
 		return r, false
 	}
 	r.Dir = dir
+	r.Running = session.Active(dir) != nil
 	task, err := core.LoadTask(dir)
 	if err != nil {
 		return r, true
