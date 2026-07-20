@@ -23,8 +23,9 @@ internal/
   rules/          automation engine: workflow.yaml rules, failure-path healing
   registry/       machine-local workspace list (~/.takos/workspaces.yaml)
   tui/            Bubble Tea: board, task card, review carousel
+  webui/          the built web UI, embedded into the binary (go:embed)
   version/
-web/              web UI (React/TS, phase C)
+web/              web UI source (React/TS/Vite)
 ```
 
 ## Install
@@ -51,6 +52,32 @@ docker run -v takos-data:/data -e OLLAMA_HOST=host.docker.internal:11434 takos
 The image ships only the takos binary; bring your own agent CLI on top
 (`RUN npm i -g @anthropic-ai/claude-code` in a derived image, or a bind
 mount). ollama stays on the host — see the Dockerfile's comment.
+
+## Web UI
+
+The tracker daemon serves a React UI on its own port — the same
+projections the TUI draws (staircase board, task card, review carousel),
+read-first, with mutations going through the same validator as the CLI.
+
+```
+takos daemon start          # http://127.0.0.1:7434
+```
+
+Live updates arrive over per-workspace SSE (`/api/ws/{name}/events`): the
+event carries no payload, it just means "re-fetch". The workspace
+switcher reads `/api/workspaces` and remembers the choice in
+localStorage.
+
+Working on the UI:
+
+```
+pnpm --dir web install
+pnpm --dir web dev          # :5173, proxies /api to a running daemon
+pnpm --dir web build        # → internal/webui/dist, embedded on the next go build
+```
+
+`internal/webui/dist` is committed so `go build` never needs node; rebuild
+and commit it when the UI changes.
 
 ## Development
 

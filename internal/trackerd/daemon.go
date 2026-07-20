@@ -48,6 +48,11 @@ type Daemon struct {
 	log       *log.Logger
 	startedAt time.Time
 
+	// stopped is closed when shutdown begins. SSE streams select on it:
+	// a long-lived response never goes idle, so without this signal
+	// http.Server.Shutdown would wait on it forever.
+	stopped chan struct{}
+
 	mu        sync.Mutex
 	instances map[string]*instance // by registry name
 	addr      string               // actual HTTP address after listen
@@ -69,6 +74,7 @@ func Run(ctx context.Context, opts Options) error {
 	d := &Daemon{
 		log:       log.New(os.Stderr, "", log.LstdFlags),
 		startedAt: time.Now(),
+		stopped:   make(chan struct{}),
 		instances: map[string]*instance{},
 	}
 
@@ -80,7 +86,15 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	defer srv.Shutdown(context.Background())
+	// Bounded shutdown: streams get a moment to notice d.stopped and drain,
+	// then the listener is closed outright rather than hanging the process.
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutCtx); err != nil {
+			srv.Close()
+		}
+	}()
 
 	pidPath := filepath.Join(home, GlobalPidFile)
 	if err := os.WriteFile(pidPath,
@@ -106,6 +120,7 @@ func Run(ctx context.Context, opts Options) error {
 		select {
 		case <-ctx.Done():
 			d.log.Printf("trackerd: shutting down")
+			close(d.stopped) // SSE streams return, so Shutdown can finish
 			d.stopAll()
 			return nil
 		case <-regEvents:

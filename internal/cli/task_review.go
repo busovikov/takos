@@ -69,74 +69,29 @@ func triage(ws *core.Workspace, taskDir, id, itemID string,
 	default:
 		return fmt.Errorf("pick exactly one of --resolve | --rework | --tech-debt")
 	}
-	if err := round.SetStatus(itemID, st); err != nil {
+
+	res, err := ws.TriageFinding(id, itemID, st)
+	if err != nil {
 		return err
 	}
-	if err := core.SaveRound(path, round); err != nil {
-		return err
+	ok("%s → %s", res.ItemID, res.Status)
+	if res.DebtID != "" {
+		ok("tech-debt → %s created in the backlog", res.DebtID)
 	}
-	core.AppendHistory(taskDir, "user", "triage",
-		fmt.Sprintf("%s %s -> %s", filepath.Base(path), itemID, st))
-	ok("%s → %s", itemID, st)
-
-	// Tech debt spawns a backlog task pointing back at its source.
-	if st == core.ReviewTechDebt {
-		item := findItem(round, itemID)
-		task, err := loadTaskMeta(ws, id)
-		if err == nil {
-			debt, _, err := ws.CreateTask(item.Title, core.CreateOpts{
-				Objective: fmt.Sprintf("%s\n\nsource: %s · %s#%s",
-					item.Body, id, filepath.Base(path), itemID),
-				Repo: task.Repo, Backlog: true,
-			})
-			if err != nil {
-				return err
-			}
-			ok("tech-debt → %s %q created in the backlog", debt.Meta.ID, debt.Meta.Title)
+	if res.Done {
+		if res.Verdict == "rework" {
+			ok("rework findings → hand-off.md (From review)")
 		}
-	}
-
-	// Triage finished → verdict and auto-move.
-	if v, done := round.Verdict(); done {
-		c := round.Counts()
-		fmt.Printf("round triaged: %d resolved · %d tech-debt · %d rework\n",
-			c[core.ReviewResolved], c[core.ReviewTechDebt], c[core.ReviewRework])
-		target := "done"
-		if v == "rework" {
-			target = "implementation"
-			// The executor's next session opens on the rework findings.
-			if err := core.AppendReworkToHandoff(taskDir, path, round); err == nil {
-				ok("rework findings → hand-off.md (From review)")
-			}
-		}
-		if res, err := ws.MoveTask(id, target, "engine", ""); err == nil {
-			ok("%s → %s", res.ID, res.To)
+		if res.MovedTo != "" {
+			ok("round triaged · %s → %s", id, res.MovedTo)
 		}
 	} else {
-		fmt.Printf("open left: %d\n", round.Counts()[core.ReviewOpen])
-	}
-	return nil
-}
-
-func findItem(round *core.ReviewRound, itemID string) core.ReviewItem {
-	for _, it := range round.Items {
-		if it.ID == itemID {
-			return it
+		round, _, _ := core.LoadLatestRound(taskDir)
+		if round != nil {
+			fmt.Printf("open left: %d\n", round.Counts()[core.ReviewOpen])
 		}
 	}
-	return core.ReviewItem{}
-}
-
-func loadTaskMeta(ws *core.Workspace, id string) (*core.TaskMeta, error) {
-	dir, err := ws.FindTaskDir(id)
-	if err != nil {
-		return nil, err
-	}
-	task, err := core.LoadTask(dir)
-	if err != nil {
-		return nil, err
-	}
-	return &task.Meta, nil
+	return nil
 }
 
 func newTaskCommentCmd() *cobra.Command {
