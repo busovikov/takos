@@ -45,6 +45,13 @@ func (in *instance) scan(withSprints bool) {
 	in.lastScan = now
 	in.mu.Unlock()
 	in.report(actions)
+
+	// A watcher-driven scan (withSprints=false) reflects a real filesystem
+	// change; a poll tick pings only when it actually did something. Either
+	// way the web UI just re-fetches — the ping carries no payload.
+	if in.hub != nil && (!withSprints || len(actions) > 0) {
+		in.hub.broadcast()
+	}
 }
 
 // snapshot maps every handler name to its current position.

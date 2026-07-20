@@ -45,10 +45,11 @@ type instance struct {
 	lock   *fsstore.Lock
 	cancel context.CancelFunc
 	done   chan struct{}
+	hub    *eventHub // SSE fan-out for /api/ws/{name}/events
 }
 
 func newInstance(name, root string, lg *log.Logger) *instance {
-	return &instance{name: name, root: root, log: lg, state: StateUnavailable}
+	return &instance{name: name, root: root, log: lg, state: StateUnavailable, hub: newEventHub()}
 }
 
 // tryStart brings the instance up: open the workspace, take its flock, run

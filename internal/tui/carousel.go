@@ -61,46 +61,30 @@ func (a *App) updateCarousel(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *App) triage(st core.ReviewStatus) tea.Cmd {
 	c, car := a.card, a.car
 	item := c.round.Items[car.idx]
-	if err := c.round.SetStatus(item.ID, st); err != nil {
+
+	res, err := a.ws.TriageFinding(c.id, item.ID, st)
+	if err != nil {
 		return a.flash(stErr, "✗ %v", err)
 	}
-	if err := core.SaveRound(c.roundPath, c.round); err != nil {
-		return a.flash(stErr, "✗ %v", err)
-	}
-	core.AppendHistory(c.task.Dir, "user", "triage",
-		fmt.Sprintf("%s %s -> %s", filepath.Base(c.roundPath), item.ID, st))
-
-	var cmds []tea.Cmd
-	cmds = append(cmds, a.flash(stOK, "✔ %s → %s", item.ID, st))
-
-	// Tech debt spawns a backlog task pointing at its source.
-	if st == core.ReviewTechDebt {
-		debt, _, err := a.ws.CreateTask(item.Title, core.CreateOpts{
-			Objective: fmt.Sprintf("%s\n\nsource: %s · %s#%s",
-				item.Body, c.id, filepath.Base(c.roundPath), item.ID),
-			Repo: c.task.Meta.Repo, Backlog: true,
-		})
-		if err == nil {
-			cmds = []tea.Cmd{a.flash(stOK, "✔ %s → tech-debt · %s created in the backlog", item.ID, debt.Meta.ID)}
-		}
+	// Re-read the round so the carousel reflects the persisted statuses.
+	if round, path, err := core.LoadLatestRound(c.task.Dir); err == nil && round != nil {
+		c.round, c.roundPath = round, path
 	}
 
-	// Triage finished → verdict and auto-move.
-	if v, done := c.round.Verdict(); done {
-		target := "done"
-		if v == "rework" {
-			target = "implementation"
-			// The executor's next session opens on the rework findings.
-			core.AppendReworkToHandoff(c.task.Dir, c.roundPath, c.round)
-		}
-		id := c.id
-		if res, err := a.ws.MoveTask(id, target, "engine", ""); err == nil {
+	msg := fmt.Sprintf("✔ %s → %s", res.ItemID, res.Status)
+	if res.DebtID != "" {
+		msg = fmt.Sprintf("✔ %s → tech-debt · %s created in the backlog", res.ItemID, res.DebtID)
+	}
+
+	// A fully triaged round auto-moved the task — back to the board.
+	if res.Done {
+		if res.MovedTo != "" {
 			a.reload()
 			a.scr = scrBoard
-			return a.flash(stOK, "✔ round triaged · %s → %s", res.ID, res.To)
+			return a.flash(stOK, "✔ round triaged · %s → %s", c.id, res.MovedTo)
 		}
-		a.openCard(id)
-		return tea.Batch(cmds...)
+		a.openCard(c.id)
+		return a.flash(stOK, "%s", msg)
 	}
 
 	// Jump to the next open finding.
@@ -112,7 +96,7 @@ func (a *App) triage(st core.ReviewStatus) tea.Cmd {
 			break
 		}
 	}
-	return tea.Batch(cmds...)
+	return a.flash(stOK, "%s", msg)
 }
 
 func (a *App) viewCarousel() string {

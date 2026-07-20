@@ -110,6 +110,16 @@ func (r *ReviewRound) SetStatus(id string, st ReviewStatus) error {
 	return fmt.Errorf("finding %s not found", id)
 }
 
+// Item returns the finding with the given id.
+func (r *ReviewRound) Item(id string) (ReviewItem, bool) {
+	for _, it := range r.Items {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return ReviewItem{}, false
+}
+
 // NextItemID returns the next free item id (R<n+1>).
 func (r *ReviewRound) NextItemID() string {
 	max := 0
