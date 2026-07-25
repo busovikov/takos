@@ -141,7 +141,9 @@ func TestMockNewGenerationAfterFinished(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Mode != ModeNew || plan.NewGen != 2 {
+	// planning's finished exception: still offers a fresh generation #2,
+	// but as ModeAsk (continue/new) rather than forcing ModeNew.
+	if plan.Mode != ModeAsk || plan.NewGen != 2 {
 		t.Fatalf("after finished: %+v", plan)
 	}
 	mustPlanAndBuild(t, ws, id, false).Run()

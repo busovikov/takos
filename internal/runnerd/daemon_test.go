@@ -157,8 +157,9 @@ func TestClientTokenIdempotency(t *testing.T) {
 	}
 
 	// A fresh token is a real submit: the next generation runs (preceded by
-	// its hand-off digest — the summarizer shares the mock agent).
-	second, err := c.Submit("w1", task.Meta.ID, SubmitRequest{ClientToken: NewToken()})
+	// its hand-off digest — the summarizer shares the mock agent). Planning's
+	// finished session collapses to resume headlessly unless New is set.
+	second, err := c.Submit("w1", task.Meta.ID, SubmitRequest{ClientToken: NewToken(), New: true})
 	if err != nil {
 		t.Fatal(err)
 	}

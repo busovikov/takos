@@ -32,7 +32,9 @@ func sessEvent(args string) core.HistoryEvent {
 }
 
 func TestPlanEntryPolicy(t *testing.T) {
-	id, stage := "T-0005", "planning"
+	// implementation is the neutral stage for exercising the generic policy —
+	// planning carves out its own "finished" exception, tested separately below.
+	id, stage := "T-0005", "implementation"
 	cases := []struct {
 		name   string
 		events []core.HistoryEvent
@@ -42,49 +44,49 @@ func TestPlanEntryPolicy(t *testing.T) {
 		resume string // expected ResumeName ("" — none)
 	}{
 		{"first session ever", nil, ModeNew, "first", 1, ""},
-		{"finished → new generation",
+		{"finished → new generation, still resumable",
 			[]core.HistoryEvent{
-				sessEvent("start T-0005-planning#1 x"),
-				sessEvent("finished T-0005-planning#1"),
+				sessEvent("start T-0005-implementation#1 x"),
+				sessEvent("finished T-0005-implementation#1"),
 			},
-			ModeNew, "finished", 2, ""},
+			ModeNew, "finished", 2, "T-0005-implementation#1"},
 		{"limit → resume, no choice",
 			[]core.HistoryEvent{
-				sessEvent("start T-0005-planning#1 x"),
-				sessEvent("limit T-0005-planning#1"),
+				sessEvent("start T-0005-implementation#1 x"),
+				sessEvent("limit T-0005-implementation#1"),
 			},
-			ModeResume, "limit", 0, "T-0005-planning#1"},
+			ModeResume, "limit", 0, "T-0005-implementation#1"},
 		{"interrupted → ask continue/new",
 			[]core.HistoryEvent{
-				sessEvent("start T-0005-planning#1 x"),
-				sessEvent("interrupted T-0005-planning#1"),
+				sessEvent("start T-0005-implementation#1 x"),
+				sessEvent("interrupted T-0005-implementation#1"),
 			},
-			ModeAsk, "interrupted", 2, "T-0005-planning#1"},
+			ModeAsk, "interrupted", 2, "T-0005-implementation#1"},
 		{"crash: start without terminal → ask",
-			[]core.HistoryEvent{sessEvent("start T-0005-planning#1 x")},
-			ModeAsk, "interrupted", 2, "T-0005-planning#1"},
+			[]core.HistoryEvent{sessEvent("start T-0005-implementation#1 x")},
+			ModeAsk, "interrupted", 2, "T-0005-implementation#1"},
 		{"resume after limit then finished → new gen 2",
 			[]core.HistoryEvent{
-				sessEvent("start T-0005-planning#1 x"),
-				sessEvent("limit T-0005-planning#1"),
-				sessEvent("resume T-0005-planning#1 x"),
-				sessEvent("finished T-0005-planning#1"),
+				sessEvent("start T-0005-implementation#1 x"),
+				sessEvent("limit T-0005-implementation#1"),
+				sessEvent("resume T-0005-implementation#1 x"),
+				sessEvent("finished T-0005-implementation#1"),
 			},
-			ModeNew, "finished", 2, ""},
+			ModeNew, "finished", 2, "T-0005-implementation#1"},
 		{"another stage's sessions are invisible",
 			[]core.HistoryEvent{
-				sessEvent("start T-0005-implementation#3 x"),
-				sessEvent("limit T-0005-implementation#3"),
+				sessEvent("start T-0005-planning#3 x"),
+				sessEvent("limit T-0005-planning#3"),
 			},
 			ModeNew, "first", 1, ""},
 		{"generations count from the maximum",
 			[]core.HistoryEvent{
-				sessEvent("start T-0005-planning#1 x"),
-				sessEvent("finished T-0005-planning#1"),
-				sessEvent("start T-0005-planning#2 x"),
-				sessEvent("finished T-0005-planning#2"),
+				sessEvent("start T-0005-implementation#1 x"),
+				sessEvent("finished T-0005-implementation#1"),
+				sessEvent("start T-0005-implementation#2 x"),
+				sessEvent("finished T-0005-implementation#2"),
 			},
-			ModeNew, "finished", 3, ""},
+			ModeNew, "finished", 3, "T-0005-implementation#2"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -107,6 +109,29 @@ func TestPlanEntryPolicy(t *testing.T) {
 				t.Errorf("ResumeUUID mismatch")
 			}
 		})
+	}
+}
+
+// TestPlanEntryPolicyPlanningFinished pins planning's exception to the
+// generic policy: a finished planning session asks (continue vs. new)
+// instead of forcing a fresh generation, since planning is conversational.
+func TestPlanEntryPolicyPlanningFinished(t *testing.T) {
+	id, stage := "T-0005", "planning"
+	events := []core.HistoryEvent{
+		sessEvent("start T-0005-planning#1 x"),
+		sessEvent("finished T-0005-planning#1"),
+	}
+	p := PlanEntry(events, id, stage)
+	if p.Mode != ModeAsk || p.Reason != "finished" {
+		t.Fatalf("mode/reason = %v/%s, want %v/finished", p.Mode, p.Reason, ModeAsk)
+	}
+	wantResume := Name(id, stage, 1)
+	if p.ResumeName != wantResume || p.ResumeUUID != UUID(wantResume) {
+		t.Errorf("resume = %s, want %s", p.ResumeName, wantResume)
+	}
+	wantNew := Name(id, stage, 2)
+	if p.NewName != wantNew || p.NewGen != 2 || p.NewUUID != UUID(wantNew) {
+		t.Errorf("new = %s (#%d), want %s (#2)", p.NewName, p.NewGen, wantNew)
 	}
 }
 
