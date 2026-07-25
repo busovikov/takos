@@ -19,7 +19,7 @@ func newWorkspaceCmd() *cobra.Command {
 		Short: "Workspace registry: the daemon watches every registered workspace",
 	}
 	cmd.AddCommand(newWorkspaceAddCmd(), newWorkspaceRemoveCmd(),
-		newWorkspaceListCmd(), newWorkspaceUseCmd())
+		newWorkspaceListCmd())
 	return cmd
 }
 
@@ -34,29 +34,20 @@ func newWorkspaceAddCmd() *cobra.Command {
 			if len(args) == 1 {
 				dir = args[0]
 			}
+			abs, err := filepath.Abs(dir)
+			if err != nil {
+				return err
+			}
 			// Only actual workspaces are registrable.
-			if _, err := core.Open(dir); err != nil {
-				return fmt.Errorf("%s is not a takos workspace (takos task init --workspace %s)", dir, dir)
+			ws, err := core.Open(core.WorkspaceDir(abs))
+			if err != nil {
+				return fmt.Errorf("%s is not a takos workspace (run takos task init there)", dir)
 			}
 			reg, err := registry.Load()
 			if err != nil {
 				return err
 			}
-			// The first add also registers the implicit default workspace,
-			// so the daemon keeps watching it after the registry appears.
-			// (Unless that is exactly the workspace being added.)
-			if len(reg.Workspaces) == 0 {
-				def := core.DefaultRoot()
-				absDir, _ := filepath.Abs(dir)
-				if absDef, err := filepath.Abs(def); err == nil && absDef != absDir {
-					if _, err := core.Open(def); err == nil {
-						if e, err := reg.Add("default", def); err == nil {
-							ok("existing default workspace registered as %q (%s)", e.Name, e.Root)
-						}
-					}
-				}
-			}
-			entry, err := reg.Add(name, dir)
+			entry, err := reg.Add(name, ws.Root)
 			if err != nil {
 				return err
 			}
@@ -64,9 +55,6 @@ func newWorkspaceAddCmd() *cobra.Command {
 				return err
 			}
 			ok("workspace %q registered: %s", entry.Name, entry.Root)
-			if entry.Name == reg.Default {
-				ok("%q is now the default workspace", entry.Name)
-			}
 			if trackerCtl.running() {
 				ok("the running daemon picks it up automatically")
 			}
@@ -99,28 +87,6 @@ func newWorkspaceRemoveCmd() *cobra.Command {
 	}
 }
 
-func newWorkspaceUseCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "use <name>",
-		Short: "Set the default workspace for CLI/TUI",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			reg, err := registry.Load()
-			if err != nil {
-				return err
-			}
-			if err := reg.Use(args[0]); err != nil {
-				return err
-			}
-			if err := reg.Save(); err != nil {
-				return err
-			}
-			ok("default workspace: %s", args[0])
-			return nil
-		},
-	}
-}
-
 func newWorkspaceListCmd() *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
@@ -148,22 +114,22 @@ func newWorkspaceListCmd() *cobra.Command {
 			if jsonOut {
 				type row struct {
 					registry.Entry
-					Default bool   `json:"default"`
-					State   string `json:"state,omitempty"`
+					State string `json:"state,omitempty"`
 				}
 				out := make([]row, 0, len(entries))
 				for _, e := range entries {
-					out = append(out, row{Entry: e, Default: e.Name == reg.Default,
-						State: states[e.Name].State})
+					out = append(out, row{Entry: e, State: states[e.Name].State})
 				}
 				return json.NewEncoder(os.Stdout).Encode(out)
 			}
 			if len(reg.Workspaces) == 0 {
-				fmt.Println("no registry yet — the single default workspace is in use:")
+				fmt.Println("no workspaces yet — run takos task init in a project directory")
 			}
-			for _, e := range entries {
+			// Entries come most recently used first — the head of the list is
+			// what the picker offers by default.
+			for i, e := range entries {
 				mark := " "
-				if e.Name == reg.Default {
+				if i == 0 {
 					mark = "*"
 				}
 				state := ""
@@ -173,7 +139,11 @@ func newWorkspaceListCmd() *cobra.Command {
 						state += " · " + s.ActiveSprint
 					}
 				}
-				fmt.Printf(" %s %-14s %s%s\n", mark, e.Name, e.Root, state)
+				used := ""
+				if !e.LastUsedAt.IsZero() {
+					used = " · " + ago(e.LastUsedAt)
+				}
+				fmt.Printf(" %s %-14s %s%s%s\n", mark, e.Name, e.Root, state, used)
 			}
 			return nil
 		},

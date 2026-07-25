@@ -1,11 +1,11 @@
 package registry
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/busovikov/takos/internal/core"
+	"time"
 )
 
 func setHome(t *testing.T) string {
@@ -22,17 +22,16 @@ func TestLoadMissingIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Workspaces) != 0 || r.Default != "" {
+	if len(r.Workspaces) != 0 {
 		t.Errorf("empty registry expected, got %+v", r)
 	}
-	// The implicit default workspace keeps the pre-registry behavior.
-	entries := r.Entries()
-	if len(entries) != 1 || entries[0].Name != "default" {
+	// No implicit workspace: an empty registry lists nothing.
+	if entries := r.Entries(); len(entries) != 0 {
 		t.Errorf("implicit entries: %+v", entries)
 	}
 }
 
-func TestAddRemoveUse(t *testing.T) {
+func TestAddRemove(t *testing.T) {
 	setHome(t)
 	dir1, dir2 := t.TempDir(), t.TempDir()
 
@@ -44,10 +43,6 @@ func TestAddRemoveUse(t *testing.T) {
 	if e1.Name == "" || !filepath.IsAbs(e1.Root) {
 		t.Errorf("entry: %+v", e1)
 	}
-	if r.Default != e1.Name {
-		t.Errorf("first add must become the default, got %q", r.Default)
-	}
-
 	if _, err := r.Add("second", dir2); err != nil {
 		t.Fatal(err)
 	}
@@ -63,13 +58,6 @@ func TestAddRemoveUse(t *testing.T) {
 		t.Error("invalid name accepted")
 	}
 
-	if err := r.Use("second"); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Use("ghost"); err == nil {
-		t.Error("use of an unknown workspace accepted")
-	}
-
 	// Round-trip through the file.
 	if err := r.Save(); err != nil {
 		t.Fatal(err)
@@ -78,16 +66,15 @@ func TestAddRemoveUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r2.Default != "second" || len(r2.Workspaces) != 2 {
+	if len(r2.Workspaces) != 2 {
 		t.Errorf("after round-trip: %+v", r2)
 	}
 
-	// Remove moves the default to the first remaining entry.
 	if err := r2.Remove("second"); err != nil {
 		t.Fatal(err)
 	}
-	if r2.Default != e1.Name {
-		t.Errorf("default after remove: %q", r2.Default)
+	if len(r2.Workspaces) != 1 || r2.Workspaces[0].Name != e1.Name {
+		t.Errorf("after remove: %+v", r2.Workspaces)
 	}
 }
 
@@ -115,21 +102,53 @@ func TestResolve(t *testing.T) {
 	if _, err := Resolve("ghost"); err == nil {
 		t.Error("unknown name resolved")
 	}
-	// Empty → registry default.
-	if got, err := Resolve(""); err != nil || got != mustEval(t, dir) {
+	// Empty outside every workspace: nothing is guessed, the caller picks.
+	if got, err := Resolve(""); !errors.Is(err, ErrNoWorkspace) {
 		t.Errorf("Resolve('') = %q, %v", got, err)
 	}
-	// $TAKOS_WORKSPACE beats the registry default.
+	// $TAKOS_WORKSPACE still wins — resolved to its .takos, same as any
+	// other project path.
 	t.Setenv("TAKOS_WORKSPACE", "/x/y")
-	if got, _ := Resolve(""); got != "/x/y" {
+	if got, _ := Resolve(""); got != "/x/y/.takos" {
 		t.Errorf("env override: %q", got)
 	}
 	t.Setenv("TAKOS_WORKSPACE", "")
 
-	// No registry at all → the classic default root.
+	// No registry and nothing around the cwd → the same explanatory error,
+	// never a silent workspace under the home directory.
 	os.Remove(Path())
-	if got, err := Resolve(""); err != nil || got != core.DefaultRoot() {
+	if got, err := Resolve(""); !errors.Is(err, ErrNoWorkspace) {
 		t.Errorf("no-registry fallback: %q, %v", got, err)
+	}
+}
+
+func TestEntriesMostRecentlyUsedFirst(t *testing.T) {
+	setHome(t)
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	r := &Registry{}
+	if _, err := r.Add("one", dir1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Add("two", dir2); err != nil {
+		t.Fatal(err)
+	}
+	r.Workspaces[0].LastUsedAt = time.Now().Add(-time.Hour)
+	r.Workspaces[1].LastUsedAt = time.Now().Add(-2 * time.Hour)
+	if err := r.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := r.Entries()[0].Name; got != "one" {
+		t.Errorf("head of the list: %q, want one", got)
+	}
+	// Working in "two" moves it to the head for the next picker.
+	Touch(dir2)
+	r2, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r2.Entries()[0].Name; got != "two" {
+		t.Errorf("after Touch: %q, want two", got)
 	}
 }
 

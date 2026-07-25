@@ -73,6 +73,7 @@ func (a *App) switchWorkspace(e registry.Entry) tea.Cmd {
 		return a.flash(stErr, "✗ %s: %v", e.Name, err)
 	}
 	a.ws = ws
+	registry.Touch(ws.Root) // this workspace now heads the picker
 	// Re-arm the live board on the new root.
 	if a.fsw != nil {
 		a.fsw.Close()
@@ -85,6 +86,65 @@ func (a *App) switchWorkspace(e registry.Entry) tea.Cmd {
 	a.reload()
 	a.scr = scrBoard
 	return tea.Batch(a.waitFs(), a.flash(stOK, "✔ workspace: %s (%s)", e.Name, e.Root))
+}
+
+// Pick runs the workspace picker on its own, before any board exists: the
+// answer to starting takos outside every workspace. Entries come most
+// recently used first, so Enter on the pre-selected head resumes the last
+// workspace worked on. An empty name means the user backed out.
+func Pick(entries []registry.Entry) (registry.Entry, error) {
+	p := &pickApp{entries: entries}
+	if _, err := tea.NewProgram(p, tea.WithAltScreen()).Run(); err != nil {
+		return registry.Entry{}, err
+	}
+	return p.chosen, nil
+}
+
+type pickApp struct {
+	entries []registry.Entry
+	sel     int
+	chosen  registry.Entry
+}
+
+func (p *pickApp) Init() tea.Cmd { return nil }
+
+func (p *pickApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	key, isKey := msg.(tea.KeyMsg)
+	if !isKey {
+		return p, nil
+	}
+	switch key.String() {
+	case "esc", "q", "ctrl+c":
+		return p, tea.Quit
+	case "up", "k":
+		if p.sel > 0 {
+			p.sel--
+		}
+	case "down", "j":
+		if p.sel < len(p.entries)-1 {
+			p.sel++
+		}
+	case "enter":
+		p.chosen = p.entries[p.sel]
+		return p, tea.Quit
+	}
+	return p, nil
+}
+
+func (p *pickApp) View() string {
+	var b strings.Builder
+	b.WriteString(" " + stTitle.Render("WORKSPACES") + stDim.Render("   "+registry.Path()) + "\n")
+	b.WriteString(" " + stDim.Render("you are outside every workspace — pick one") + "\n\n")
+	for i, e := range p.entries {
+		line := fmt.Sprintf("%-14s %s", e.Name, e.Root)
+		if i == p.sel {
+			b.WriteString(" " + stAccent.Render("❯") + " " + stSel.Render(line) + "\n")
+		} else {
+			b.WriteString("   " + line + "\n")
+		}
+	}
+	b.WriteString("\n " + stDim.Render("↑↓ · Enter open · Esc quit") + "\n")
+	return b.String()
 }
 
 func (a *App) viewWsPick() string {

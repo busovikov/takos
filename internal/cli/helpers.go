@@ -1,35 +1,101 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/busovikov/takos/internal/core"
 	"github.com/busovikov/takos/internal/fsstore"
 	"github.com/busovikov/takos/internal/registry"
 	"github.com/busovikov/takos/internal/trackerd"
+	"github.com/busovikov/takos/internal/tui"
+	"golang.org/x/term"
 )
 
 // workspaceFlag is the persistent --workspace override (else $TAKOS_WORKSPACE,
-// else ~/.takos/workspace).
+// else the workspace containing the current directory).
 var workspaceFlag string
+
+// initRoot is where `task init` scaffolds: the explicit --workspace, else
+// $TAKOS_WORKSPACE, else the current directory.
+func initRoot() (string, error) {
+	if workspaceFlag != "" {
+		return workspaceFlag, nil
+	}
+	if v := os.Getenv("TAKOS_WORKSPACE"); v != "" {
+		return v, nil
+	}
+	return os.Getwd()
+}
+
+// registerWorkspace puts a freshly created workspace into the registry so the
+// daemon watches it and other directories can address it by name. Already
+// registered (or an unusable name) is not an error worth failing init over.
+func registerWorkspace(root string) {
+	reg, err := registry.Load()
+	if err != nil {
+		warn("registry: %v", err)
+		return
+	}
+	entry, err := reg.Add("", root)
+	if err != nil {
+		return // already registered — nothing to do
+	}
+	if err := reg.Save(); err != nil {
+		warn("registry: %v", err)
+		return
+	}
+	ok("workspace %q registered", entry.Name)
+}
 
 func openWS() (*core.Workspace, error) {
 	ws, err := openWSRaw()
 	if err != nil {
 		return nil, err
 	}
+	registry.Touch(ws.Root) // keeps the picker ordered by recency
+	catchUpSprints(ws)
+	return ws, nil
+}
+
+// errPickAborted: the user left the workspace picker without choosing — a
+// quiet exit, not a failure.
+var errPickAborted = errors.New("no workspace picked")
+
+// openWSOrPick answers "you are outside every workspace" on a TTY with the
+// picker over the registry (most recently used first) instead of an error.
+func openWSOrPick() (*core.Workspace, error) {
+	ws, err := openWS()
+	if err == nil || !errors.Is(err, registry.ErrNoWorkspace) ||
+		!term.IsTerminal(int(os.Stdout.Fd())) {
+		return ws, err
+	}
+	reg, lerr := registry.Load()
+	if lerr != nil || len(reg.Workspaces) == 0 {
+		return nil, err // nothing to pick from: the original hint is better
+	}
+	entry, perr := tui.Pick(reg.Entries())
+	if perr != nil {
+		return nil, perr
+	}
+	if entry.Name == "" {
+		return nil, errPickAborted
+	}
+	ws, err = core.Open(entry.Root)
+	if err != nil {
+		return nil, err
+	}
+	registry.Touch(ws.Root)
 	catchUpSprints(ws)
 	return ws, nil
 }
 
 // openWSRaw opens the workspace without side effects. The --workspace value
 // may be a registry name or a path; empty falls back to $TAKOS_WORKSPACE →
-// registry default → ~/.takos/workspace.
+// the workspace containing the current directory.
 func openWSRaw() (*core.Workspace, error) {
 	root, err := registry.Resolve(workspaceFlag)
 	if err != nil {
@@ -55,15 +121,6 @@ func catchUpSprints(ws *core.Workspace) {
 	for _, a := range rep.Actions {
 		warn("%s", a)
 	}
-}
-
-// currentRepo returns the git toplevel of cwd, or "" outside a repository.
-func currentRepo() string {
-	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // ago renders a compact "5m ago" for tables and status lines.

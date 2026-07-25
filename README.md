@@ -42,6 +42,25 @@ install hint, and never fails because they're missing. `takos doctor`
 re-runs the same checks (plus workflow.yaml role assignments) any time
 after that.
 
+## Quick start
+
+```
+takos task init                 # creates ./.takos (workspace + workflow.yaml)
+takos task create "Fix the bug" # T-0001, lands in the backlog
+takos task list                 # interactive board in a TTY (--plain for a table)
+takos doctor                    # checks the install, agent CLIs, workflow.yaml roles
+```
+
+`takos task init` creates the workspace in a hidden `.takos/` under the
+current directory (or under `--workspace DIR` / `$TAKOS_WORKSPACE`) — the
+project directory itself stays clean, the same way `git init` only adds
+`.git`, and doubles as the default repo for tasks created here. Other
+commands find the workspace by walking up from the current directory
+looking for `.takos/`. Outside every workspace nothing is guessed: `takos
+task list` opens the workspace picker (most recently used first), other
+commands print the same list and take `--workspace NAME`. See `takos task
+--help` and `takos --help` for the full command tree.
+
 ## Container
 
 ```

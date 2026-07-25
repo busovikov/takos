@@ -57,9 +57,13 @@ func (ws *Workspace) CreateTask(title string, opts CreateOpts) (*Task, *HandlerP
 	if prio == "" {
 		prio = "p2"
 	}
+	repo := opts.Repo
+	if repo == "" {
+		repo = ws.ProjectRoot()
+	}
 	task := &Task{
 		Meta: TaskMeta{
-			ID: id, Title: title, Repo: opts.Repo, Priority: prio,
+			ID: id, Title: title, Repo: repo, Priority: prio,
 			Automation: "active", CreatedAt: time.Now().UTC(),
 		},
 		Body: "## Objective\n" + opts.Objective + "\n",

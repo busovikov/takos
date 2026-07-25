@@ -15,30 +15,56 @@ type Workspace struct {
 }
 
 const (
-	TasksDirName   = "tasks"
-	BacklogDirName = "backlog"
-	SprintsDirName = "sprints"
-	ArchiveDirName = "archive"
-	ChecksDirName  = ".checks"
+	TasksDirName     = "tasks"
+	BacklogDirName   = "backlog"
+	SprintsDirName   = "sprints"
+	ArchiveDirName   = "archive"
+	ChecksDirName    = ".checks"
+	WorkspaceDirName = ".takos"
 )
 
-// DefaultRoot resolves the workspace path: $TAKOS_WORKSPACE or ~/.takos/workspace.
-func DefaultRoot() string {
-	if v := os.Getenv("TAKOS_WORKSPACE"); v != "" {
-		return v
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".takos-workspace"
-	}
-	return filepath.Join(home, ".takos", "workspace")
+// WorkspaceDir is where a project's tracker data actually lives, mirroring
+// how .git holds a repo's data: <projectRoot>/.takos. The project directory
+// itself stays clean — workflow.yaml, tasks/, backlog/, sprints/ and
+// archive/ all nest under this hidden directory.
+func WorkspaceDir(projectRoot string) string {
+	return filepath.Join(projectRoot, WorkspaceDirName)
 }
 
-// Open loads an existing workspace (workflow.yaml must exist and be valid).
+// FindRoot walks up from start looking for a project directory holding
+// .takos/workflow.yaml, the way git finds its repository root. Workspaces
+// live where the user created them; there is no implicit workspace under
+// the home dir.
+func FindRoot(start string) (string, bool) {
+	dir, err := filepath.Abs(start)
+	if err != nil {
+		return "", false
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(WorkspaceDir(dir), WorkflowFile)); err == nil {
+			return WorkspaceDir(dir), true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+}
+
+// Open loads an existing workspace: root normally holds workflow.yaml
+// directly (typically <projectRoot>/.takos — see WorkspaceDir). As a
+// fallback, if root itself has no workflow.yaml but root/.takos does, that
+// is used instead — this heals registry entries stored before workspaces
+// moved under .takos, and lets callers pass either a project directory or
+// its resolved workspace dir.
 func Open(root string) (*Workspace, error) {
 	wf, err := LoadWorkflow(root)
 	if os.IsNotExist(err) {
-		return nil, fmt.Errorf("tracker workspace not found (%s)\nget started: takos task init [--workspace DIR]", root)
+		if wf2, err2 := LoadWorkflow(WorkspaceDir(root)); err2 == nil {
+			return &Workspace{Root: WorkspaceDir(root), WF: wf2}, nil
+		}
+		return nil, fmt.Errorf("tracker workspace not found (%s)\nget started: cd into the project directory and run takos task init", root)
 	}
 	if err != nil {
 		return nil, err
@@ -46,28 +72,37 @@ func Open(root string) (*Workspace, error) {
 	return &Workspace{Root: root, WF: wf}, nil
 }
 
+// ProjectRoot is the directory that owns this workspace's .takos — the code
+// repository the tracked tasks are about (used as the agent's cwd and the
+// default task repo).
+func (ws *Workspace) ProjectRoot() string { return filepath.Dir(ws.Root) }
+
 func (ws *Workspace) TasksDir() string   { return filepath.Join(ws.Root, TasksDirName) }
 func (ws *Workspace) BacklogDir() string { return filepath.Join(ws.Root, BacklogDirName) }
 func (ws *Workspace) SprintsDir() string { return filepath.Join(ws.Root, SprintsDirName) }
 func (ws *Workspace) ArchiveDir() string { return filepath.Join(ws.Root, ArchiveDirName) }
 
-// Init scaffolds a new workspace: directories, default workflow.yaml and the
-// first active+next sprint pair. Idempotent: existing files are kept.
+// Init scaffolds a new workspace under <root>/.takos: directories, default
+// workflow.yaml and the first active+next sprint pair. root is the project
+// directory (typically cwd) — it is left untouched aside from the hidden
+// .takos subdirectory, the same way `git init` only adds .git. Idempotent:
+// existing files are kept.
 func Init(root string) (*Workspace, error) {
-	for _, d := range []string{root, filepath.Join(root, TasksDirName),
-		filepath.Join(root, BacklogDirName), filepath.Join(root, SprintsDirName),
-		filepath.Join(root, ArchiveDirName)} {
+	wsRoot := WorkspaceDir(root)
+	for _, d := range []string{wsRoot, filepath.Join(wsRoot, TasksDirName),
+		filepath.Join(wsRoot, BacklogDirName), filepath.Join(wsRoot, SprintsDirName),
+		filepath.Join(wsRoot, ArchiveDirName)} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
 		}
 	}
-	wfPath := filepath.Join(root, WorkflowFile)
+	wfPath := filepath.Join(wsRoot, WorkflowFile)
 	if _, err := os.Stat(wfPath); os.IsNotExist(err) {
 		if err := os.WriteFile(wfPath, []byte(DefaultWorkflowYAML), 0o644); err != nil {
 			return nil, err
 		}
 	}
-	ws, err := Open(root)
+	ws, err := Open(wsRoot)
 	if err != nil {
 		return nil, err
 	}
