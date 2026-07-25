@@ -113,7 +113,7 @@ func (a *App) startCreatePrompt(backlog bool) tea.Cmd {
 			if title == "" {
 				return a.flash(stErr, "✗ empty title — nothing created")
 			}
-			task, _, err := a.ws.CreateTask(title, core.CreateOpts{Repo: a.repo, Backlog: backlog})
+			task, _, err := a.ws.CreateTask(title, core.CreateOpts{Backlog: backlog})
 			if err != nil {
 				return a.flash(stErr, "✗ %v", err)
 			}

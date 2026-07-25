@@ -8,7 +8,7 @@ func newTaskCmd() *cobra.Command {
 		Short: "Task tracker: board, create, move, review, sprints",
 	}
 	cmd.PersistentFlags().StringVar(&workspaceFlag, "workspace", "",
-		"workspace name (registry) or path (default: $TAKOS_WORKSPACE → registry default → ~/.takos/workspace)")
+		"workspace name (registry) or path (default: $TAKOS_WORKSPACE → the workspace around the current directory)")
 	cmd.AddCommand(
 		newTaskInitCmd(),
 		newTaskCreateCmd(),

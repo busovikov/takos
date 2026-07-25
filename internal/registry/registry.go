@@ -6,11 +6,14 @@
 package registry
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -25,11 +28,13 @@ const FileName = "workspaces.yaml"
 type Entry struct {
 	Name string `yaml:"name"`
 	Root string `yaml:"root"`
+	// LastUsedAt orders the picker: the workspace worked on most recently
+	// comes first. Zero for entries never opened yet.
+	LastUsedAt time.Time `yaml:"lastUsedAt,omitempty"`
 }
 
 // Registry is the parsed workspaces.yaml.
 type Registry struct {
-	Default    string  `yaml:"default,omitempty"`
 	Workspaces []Entry `yaml:"workspaces"`
 }
 
@@ -95,8 +100,7 @@ func (r *Registry) Find(name string) (Entry, bool) {
 }
 
 // Add registers a workspace. An empty name defaults to the slugified
-// directory basename; duplicates by name or resolved path are rejected. The
-// first registered workspace becomes the default.
+// directory basename; duplicates by name or resolved path are rejected.
 func (r *Registry) Add(name, root string) (Entry, error) {
 	abs, err := filepath.Abs(expandHome(root))
 	if err != nil {
@@ -126,53 +130,56 @@ func (r *Registry) Add(name, root string) (Entry, error) {
 			return Entry{}, fmt.Errorf("%s is already registered as %q", abs, e.Name)
 		}
 	}
-	entry := Entry{Name: name, Root: abs}
+	entry := Entry{Name: name, Root: abs, LastUsedAt: time.Now()}
 	r.Workspaces = append(r.Workspaces, entry)
-	if r.Default == "" {
-		r.Default = name
-	}
 	return entry, nil
 }
 
 // Remove drops a workspace from the registry (the workspace itself is not
-// touched). A default pointing at it moves to the first remaining entry.
+// touched).
 func (r *Registry) Remove(name string) error {
 	for i, e := range r.Workspaces {
 		if e.Name != name {
 			continue
 		}
 		r.Workspaces = append(r.Workspaces[:i], r.Workspaces[i+1:]...)
-		if r.Default == name {
-			r.Default = ""
-			if len(r.Workspaces) > 0 {
-				r.Default = r.Workspaces[0].Name
-			}
-		}
 		return nil
 	}
 	return fmt.Errorf("workspace %q is not registered", name)
 }
 
-// Use sets the default workspace.
-func (r *Registry) Use(name string) error {
-	if _, ok := r.Find(name); !ok {
-		return fmt.Errorf("workspace %q is not registered", name)
-	}
-	r.Default = name
-	return nil
-}
-
-// Entries returns registered workspaces; an empty registry yields the single
-// implicit default workspace — the pre-registry behavior.
+// Entries returns registered workspaces, most recently used first (never-used
+// ones keep their registration order at the end). An empty registry means no
+// workspace has been created yet — there is no implicit one.
 func (r *Registry) Entries() []Entry {
-	if len(r.Workspaces) == 0 {
-		return []Entry{{Name: "default", Root: core.DefaultRoot()}}
-	}
-	return r.Workspaces
+	out := append([]Entry(nil), r.Workspaces...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].LastUsedAt.After(out[j].LastUsedAt)
+	})
+	return out
 }
 
-// NameFor maps a workspace root to its registry name (the implicit single
-// default workspace counts); ok=false means the root is not registered, so
+// Touch records that a workspace root is being worked on, so it heads the
+// picker next time. Best-effort: an unregistered root or an unwritable
+// registry is not worth failing a command over.
+func Touch(root string) {
+	reg, err := Load()
+	if err != nil {
+		return
+	}
+	want := canonPath(root)
+	for i, e := range reg.Workspaces {
+		if canonPath(e.Root) != want {
+			continue
+		}
+		reg.Workspaces[i].LastUsedAt = time.Now()
+		reg.Save()
+		return
+	}
+}
+
+// NameFor maps a workspace root to its registry name; ok=false means the
+// root is not registered, so
 // name-addressed daemon APIs cannot reach it.
 func NameFor(root string) (string, bool) {
 	reg, err := Load()
@@ -201,13 +208,19 @@ func canonPath(p string) string {
 	return abs
 }
 
-// Resolve maps a --workspace value (registry name or path) to a workspace
-// root. Precedence with an empty flag: $TAKOS_WORKSPACE → registry default
-// → ~/.takos/workspace.
+// Resolve maps a --workspace value (registry name or project path) to a
+// workspace root (the project's .takos — see core.WorkspaceDir). Precedence
+// with an empty flag: $TAKOS_WORKSPACE → the workspace containing the
+// current directory. Outside every workspace there is nothing to guess: the
+// caller gets ErrNoWorkspace and lets the user pick.
 func Resolve(flag string) (string, error) {
 	if flag != "" {
 		if looksLikePath(flag) {
-			return filepath.Abs(expandHome(flag))
+			abs, err := filepath.Abs(expandHome(flag))
+			if err != nil {
+				return "", err
+			}
+			return core.WorkspaceDir(abs), nil
 		}
 		reg, err := Load()
 		if err != nil {
@@ -217,23 +230,48 @@ func Resolve(flag string) (string, error) {
 			return e.Root, nil
 		}
 		if _, err := os.Stat(flag); err == nil {
-			return filepath.Abs(flag)
+			abs, err := filepath.Abs(flag)
+			if err != nil {
+				return "", err
+			}
+			return core.WorkspaceDir(abs), nil
 		}
 		return "", fmt.Errorf("no workspace named %q in the registry (takos workspace list)", flag)
 	}
 	if v := os.Getenv("TAKOS_WORKSPACE"); v != "" {
-		return v, nil
+		return core.WorkspaceDir(v), nil
+	}
+	// Working inside a workspace always addresses that workspace.
+	if cwd, err := os.Getwd(); err == nil {
+		if root, ok := core.FindRoot(cwd); ok {
+			return root, nil
+		}
 	}
 	reg, err := Load()
 	if err != nil {
 		return "", err
 	}
-	if reg.Default != "" {
-		if e, ok := reg.Find(reg.Default); ok {
-			return e.Root, nil
-		}
+	return "", noWorkspaceErr(reg)
+}
+
+// ErrNoWorkspace means nothing addressed a workspace — the caller is outside
+// every workspace. Interactive callers answer it with the picker over
+// Entries(); everyone else prints the wrapped list.
+var ErrNoWorkspace = errors.New("no takos workspace here")
+
+// noWorkspaceErr explains what to do: create one here, or pick a registered
+// one (most recently used first, same order as the picker).
+func noWorkspaceErr(reg *Registry) error {
+	if len(reg.Workspaces) == 0 {
+		return fmt.Errorf("%w\nget started: cd into the project directory and run takos task init", ErrNoWorkspace)
 	}
-	return core.DefaultRoot(), nil
+	var b strings.Builder
+	b.WriteString("; registered workspaces:")
+	for _, e := range reg.Entries() {
+		fmt.Fprintf(&b, "\n  %-14s %s", e.Name, e.Root)
+	}
+	b.WriteString("\npick one: --workspace NAME")
+	return fmt.Errorf("%w%s", ErrNoWorkspace, b.String())
 }
 
 // looksLikePath distinguishes a filesystem path from a registry name:

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,12 +18,12 @@ import (
 func newTaskInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Create the tracker workspace (+ workflow.yaml template)",
+		Short: "Create the tracker workspace in ./.takos (+ workflow.yaml template)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root := workspaceFlag
-			if root == "" {
-				root = core.DefaultRoot()
+			root, err := initRoot()
+			if err != nil {
+				return err
 			}
 			ws, err := core.Init(root)
 			if err != nil {
@@ -31,6 +32,7 @@ func newTaskInitCmd() *cobra.Command {
 			active, _ := ws.ActiveSprint()
 			ok("workspace: %s", ws.Root)
 			ok("workflow.yaml: %d stages, active sprint %s", len(ws.WF.Stages), active.Name)
+			registerWorkspace(ws.Root)
 			return nil
 		},
 	}
@@ -48,9 +50,6 @@ func newTaskCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if repo == "" {
-				repo = currentRepo()
-			}
 			task, pos, err := ws.CreateTask(args[0], core.CreateOpts{
 				Objective: desc, Repo: repo, Priority: prio,
 				Backlog: backlog, Sprint: sprint,
@@ -67,7 +66,7 @@ func newTaskCreateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&desc, "description", "d", "", "Objective — a short draft of the idea")
-	cmd.Flags().StringVar(&repo, "repo", "", "project repository (default: git repo of cwd)")
+	cmd.Flags().StringVar(&repo, "repo", "", "project repository (default: workspace root)")
 	cmd.Flags().StringVarP(&prio, "priority", "p", "", "p0…p3 (default p2)")
 	cmd.Flags().BoolVar(&backlog, "backlog", false, "create in the backlog")
 	cmd.Flags().StringVar(&sprint, "sprint", "", "next — create in the next sprint")
@@ -82,7 +81,10 @@ func newTaskListCmd() *cobra.Command {
 		Short: "List tasks (interactive board in a TTY; --plain for a table)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, err := openWS()
+			ws, err := openWSOrPick()
+			if errors.Is(err, errPickAborted) {
+				return nil
+			}
 			if err != nil {
 				return err
 			}
@@ -91,7 +93,7 @@ func newTaskListCmd() *cobra.Command {
 				term.IsTerminal(int(os.Stdout.Fd())) {
 				repo := ""
 				if !all {
-					repo = currentRepo()
+					repo = ws.ProjectRoot()
 				}
 				return tui.Run(ws, repo)
 			}
@@ -99,7 +101,7 @@ func newTaskListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			repo := currentRepo()
+			repo := ws.ProjectRoot()
 			var out []taskRow
 			backlogCount := 0
 			for _, r := range rows {
