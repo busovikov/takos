@@ -80,7 +80,9 @@ type EntryPlan struct {
 	NewUUID string
 	NewGen  int
 
-	// The session to continue (ModeResume, or ModeAsk resolved to "continue").
+	// The last generation still open to a continue: set whenever a prior
+	// session exists (ModeResume/ModeAsk, and also a finished ModeNew — the
+	// interactive card offers "continue" from every stage off this field).
 	ResumeName string
 	ResumeUUID string
 }
@@ -88,6 +90,10 @@ type EntryPlan struct {
 // PlanEntry folds history.log into the entry decision for one task+stage:
 // limit → always resume; interrupted (including a start with no terminal
 // record — a crash) → ask; finished or no sessions yet → a fresh session.
+// A finished session always exposes ResumeName so an interactive caller can
+// still offer "continue it"; planning goes further and asks by default,
+// since planning is conversational and a fresh generation each entry is
+// rarely what you want.
 func PlanEntry(events []core.HistoryEvent, taskID, stage string) EntryPlan {
 	last := stageSessions(events, taskID, stage)
 	maxGen := 0
@@ -116,7 +122,16 @@ func PlanEntry(events []core.HistoryEvent, taskID, stage string) EntryPlan {
 			ResumeName: name, ResumeUUID: UUID(name),
 		}
 	case OutcomeFinished:
-		return fresh(maxGen+1, OutcomeFinished)
+		// A fresh generation is the default, but the finished session stays
+		// resumable — the card lets you continue it from any stage. Planning
+		// asks by default (conversational); elsewhere the recommendation is
+		// the fresh pass, with continue offered alongside.
+		p := fresh(maxGen+1, OutcomeFinished)
+		p.ResumeName, p.ResumeUUID = name, UUID(name)
+		if stage == "planning" {
+			p.Mode = ModeAsk
+		}
+		return p
 	default: // interrupted, or start/resume without a terminal record
 		p := fresh(maxGen+1, OutcomeInterrupted)
 		p.Mode = ModeAsk

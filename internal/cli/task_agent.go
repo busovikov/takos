@@ -44,21 +44,25 @@ func newTaskAgentCmd() *cobra.Command {
 			}
 
 			resume := false
-			switch plan.Mode {
-			case session.ModeResume:
+			switch {
+			case plan.Mode == session.ModeResume:
 				if forceNew {
 					return fmt.Errorf("%s hit its limit — resuming is the only way in (drop --new)", plan.ResumeName)
 				}
 				resume = true
-			case session.ModeAsk:
+			case plan.ResumeName != "":
+				// A prior session in this stage can be continued (interrupted,
+				// or a clean finish) — same choice the card offers.
 				switch {
 				case forceNew:
 				case term.IsTerminal(int(os.Stdin.Fd())):
-					fmt.Printf("session %s was interrupted — continue it? [Y/n] ", plan.ResumeName)
+					fmt.Printf("continue session %s? [Y/n] ", plan.ResumeName)
 					line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 					resume = !strings.HasPrefix(strings.TrimSpace(strings.ToLower(line)), "n")
 				default:
-					resume = true // non-interactive default: continue
+					// No one at the keyboard: continue an interrupted session
+					// (don't lose work), but start fresh after a clean finish.
+					resume = plan.Mode == session.ModeAsk
 				}
 			}
 
