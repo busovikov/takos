@@ -220,7 +220,7 @@ func (a *App) viewSprint() string {
 	}
 	b.WriteString("\n\n")
 	fmt.Fprintf(&b, " %s %s\n", stKey.Render("c"), "close the sprint now (done → archive, unfinished → next)")
-	fmt.Fprintf(&b, " %s %s\n", stKey.Render("e"), "sprint.md in $EDITOR (dates, length)")
+	fmt.Fprintf(&b, " %s %s\n", stKey.Render("e"), editorLabel(core.SprintFile)+" (dates, length)")
 
 	b.WriteString("\n")
 	if a.confirm != nil {

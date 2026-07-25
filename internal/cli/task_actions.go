@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/busovikov/takos/internal/core"
+	"github.com/busovikov/takos/internal/registry"
 )
 
 func newTaskMoveCmd() *cobra.Command {
@@ -136,7 +137,7 @@ func newTaskEditCmd() *cobra.Command {
 	var plan bool
 	cmd := &cobra.Command{
 		Use:   "edit T-0001",
-		Short: "Open task.md (or --plan → plan.md) in $EDITOR",
+		Short: "Open task.md (or --plan → plan.md) in $EDITOR, or the system default application",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := openWS()
@@ -151,13 +152,14 @@ func newTaskEditCmd() *cobra.Command {
 			if plan {
 				file = core.PlanFile
 			}
-			editor := os.Getenv("EDITOR")
-			if editor == "" {
-				return fmt.Errorf("$EDITOR is not set")
+			path := filepath.Join(taskDir, file)
+			if editor := os.Getenv("EDITOR"); editor != "" {
+				c := exec.Command(editor, path)
+				c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+				return c.Run()
 			}
-			c := exec.Command(editor, filepath.Join(taskDir, file))
-			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
-			return c.Run()
+			// No override: the OS picks the application for the file.
+			return core.OpenWithSystem(path).Start()
 		},
 	}
 	cmd.Flags().BoolVar(&plan, "plan", false, "open plan.md")
@@ -227,9 +229,9 @@ func newTaskWorkflowCmd() *cobra.Command {
 		Short: "Validate the schema and cross-references of workflow.yaml",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root := workspaceFlag
-			if root == "" {
-				root = core.DefaultRoot()
+			root, err := registry.Resolve(workspaceFlag)
+			if err != nil {
+				return err
 			}
 			data, err := os.ReadFile(filepath.Join(root, core.WorkflowFile))
 			if err != nil {
