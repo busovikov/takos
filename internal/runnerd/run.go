@@ -64,7 +64,7 @@ func PlanJob(ws *core.Workspace, id string, opts JobOpts) (*Job, error) {
 		role = session.RoleForStage(pos.Stage)
 	}
 	j, err := newJob(ws, task, pos.Stage, role, plan, resume,
-		session.Prompt(ws, task, task.Dir, role, opts.PromptExtra))
+		session.Prompt(ws, task, task.Dir, role, opts.PromptExtra, true))
 	if err != nil {
 		return nil, err
 	}

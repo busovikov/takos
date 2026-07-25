@@ -23,7 +23,7 @@ transitions:
   - { from: planning,       to: implementation, manual: true }
   - { from: implementation, to: review,         manual: true }
   - { from: review,         to: implementation, manual: false }
-  - { from: review,         to: done,           manual: false }
+  - { from: review,         to: done,           manual: true }
 roles:
   planner:
     agent: claude-code
@@ -51,8 +51,8 @@ func TestParseWorkflowValid(t *testing.T) {
 	if allowed, manual := w.TransitionAllowed("refinement", "planning"); !allowed || !manual {
 		t.Error("refinement -> planning must be allowed and manual")
 	}
-	if allowed, manual := w.TransitionAllowed("review", "done"); !allowed || manual {
-		t.Error("review -> done must be allowed but not manual")
+	if allowed, manual := w.TransitionAllowed("review", "done"); !allowed || !manual {
+		t.Error("review -> done must be allowed and manual")
 	}
 	if allowed, _ := w.TransitionAllowed("done", "refinement"); allowed {
 		t.Error("an absent transition must be forbidden")

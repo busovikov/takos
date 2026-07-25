@@ -36,9 +36,24 @@ func TestInitScaffold(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(active.Dir, "3-implementation")); err != nil {
 		t.Error("stage folder 3-implementation is missing")
 	}
-	// Idempotency.
-	if _, err := Init(ws.Root); err != nil {
+	// Idempotency: re-running init against the same project directory.
+	if _, err := Init(ws.ProjectRoot()); err != nil {
 		t.Fatalf("second Init: %v", err)
+	}
+}
+
+func TestFindRootWalksUp(t *testing.T) {
+	ws := newTestWS(t)
+	deep := filepath.Join(ws.Root, TasksDirName, "nested")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := FindRoot(deep)
+	if !ok || got != ws.Root {
+		t.Errorf("FindRoot(%s) = %q, %v; want %s", deep, got, ok, ws.Root)
+	}
+	if _, ok := FindRoot(t.TempDir()); ok {
+		t.Error("a directory outside any workspace resolved to a root")
 	}
 }
 
@@ -126,15 +141,18 @@ func TestMoveHappyPathAndGates(t *testing.T) {
 		t.Fatal("implementation → done must not be allowed")
 	}
 
-	// implementation → review; review → done is closed for humans (manual: false).
+	// implementation → review; review → done needs review:clean first.
 	if _, err := ws.MoveTask(id, "review", "user", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ws.MoveTask(id, "done", "user", ""); err == nil {
-		t.Fatal("review → done must be automation-only")
+		t.Fatal("review → done must be gated by review:clean when no review round exists yet")
 	}
-	// …but automation may.
-	if _, err := ws.MoveTask(id, "done", "engine", ""); err != nil {
+
+	// Once the (single, resolved) review round is clean, the move opens up
+	// — for a human too, since review → done is manual.
+	writeCleanRound(t, task.Dir)
+	if _, err := ws.MoveTask(id, "done", "user", ""); err != nil {
 		t.Fatal(err)
 	}
 	stage, _ := LastMove(mustHistory(t, task.Dir))
@@ -171,6 +189,15 @@ func TestOpenReviewBlocksMoves(t *testing.T) {
 	}
 	if _, err := ws.MoveTask(id, "done", "engine", ""); err != nil {
 		t.Fatal(err)
+	}
+
+	// A done task has no way back to the backlog — not for a human, not
+	// for automation.
+	if _, err := ws.MoveTask(id, Backlog, "user", ""); err == nil {
+		t.Fatal("a done task must not be sendable to the backlog")
+	}
+	if _, err := ws.MoveTask(id, Backlog, "engine", ""); err == nil {
+		t.Fatal("a done task must not be sendable to the backlog, even by automation")
 	}
 }
 
@@ -212,6 +239,7 @@ func TestCloseActiveSprint(t *testing.T) {
 	SetCheck(doneTask.Dir, "plan-resolved")
 	ws.MoveTask(doneTask.Meta.ID, "implementation", "user", "")
 	ws.MoveTask(doneTask.Meta.ID, "review", "user", "")
+	writeCleanRound(t, doneTask.Dir)
 	ws.MoveTask(doneTask.Meta.ID, "done", "engine", "")
 	// The unfinished one — to planning.
 	ws.MoveTask(wip.Meta.ID, "planning", "user", "")
@@ -279,6 +307,20 @@ func TestMdSections(t *testing.T) {
 	}
 	if got := GetSection(body, "Missing"); got != "" {
 		t.Errorf("Missing = %q", got)
+	}
+}
+
+// writeCleanRound drops a single, already-resolved review round into a task
+// dir, satisfying the review:clean gate on entering done.
+func writeCleanRound(t *testing.T, taskDir string) {
+	t.Helper()
+	path, err := NewRoundPath(taskDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	round := &ReviewRound{Items: []ReviewItem{{ID: "R1", Title: "ok", Status: ReviewResolved}}}
+	if err := SaveRound(path, round); err != nil {
+		t.Fatal(err)
 	}
 }
 

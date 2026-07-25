@@ -18,11 +18,14 @@ type TriageResult struct {
 }
 
 // TriageFinding applies one triage decision to a task's latest review round
-// and, when the round is fully triaged, computes the verdict and auto-moves
-// the task: rework → back to implementation (with the rework findings copied
-// into hand-off.md's "From review"), otherwise → done. A tech-debt finding
-// spawns a backlog task linking back to its source. The CLI, TUI and web
-// API all triage through here, so the behaviour cannot diverge.
+// and, when the round is fully triaged, computes the verdict. A "rework"
+// verdict auto-moves the task back to implementation, with the rework
+// findings copied into hand-off.md's "From review". A "done" verdict is
+// only reported — the task stays in review until a human (or the executor,
+// once it has resolved its own rework findings) moves it to done explicitly;
+// nothing auto-moves a task there. A tech-debt finding spawns a backlog task
+// linking back to its source. The CLI, TUI and web API all triage through
+// here, so the behaviour cannot diverge.
 func (ws *Workspace) TriageFinding(id, itemID string, status ReviewStatus) (*TriageResult, error) {
 	taskDir, err := ws.FindTaskDir(id)
 	if err != nil {
@@ -65,17 +68,16 @@ func (ws *Workspace) TriageFinding(id, itemID string, status ReviewStatus) (*Tri
 		}
 	}
 
-	// A fully triaged round has a verdict and auto-moves.
+	// A fully triaged round has a verdict. Only "rework" auto-moves — a
+	// "done" verdict is left for a human (or the executor) to act on.
 	if v, done := round.Verdict(); done {
 		res.Verdict, res.Done = v, true
-		target := "done"
 		if v == "rework" {
-			target = "implementation"
 			// The executor's next session opens on the rework findings.
-			AppendReworkToHandoff(taskDir, path, round)
-		}
-		if mr, err := ws.MoveTask(id, target, "engine", ""); err == nil {
-			res.MovedTo = mr.To
+			AppendReworkToHandoff(taskDir, id, path, round)
+			if mr, err := ws.MoveTask(id, "implementation", "engine", ""); err == nil {
+				res.MovedTo = mr.To
+			}
 		}
 	}
 	return res, nil

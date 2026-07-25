@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+// ActiveSessionChecker reports whether a task directory has a running agent
+// session. core cannot import the session package (it already imports
+// core), so session wires this in via an init() instead.
+var ActiveSessionChecker func(taskDir string) bool
+
 // MoveResult reports a successful transition for printing/history.
 type MoveResult struct {
 	ID   string
@@ -68,7 +73,16 @@ func (ws *Workspace) ValidateMove(id, taskDir string, pos *HandlerPos, to, actor
 		return fmt.Errorf("%s is already in %s", id, to)
 	}
 
-	// Untriaged review findings block every move.
+	if to == Backlog {
+		if from == "done" {
+			return fmt.Errorf("%s: done tasks cannot be sent back to the backlog", id)
+		}
+		// Any other stage may go back to the backlog (a deliberate action,
+		// confirmed in the TUI) — even with review findings still open.
+		return nil
+	}
+
+	// Untriaged review findings block every other move.
 	if n, err := OpenReviewCount(taskDir); err != nil {
 		return err
 	} else if n > 0 {
@@ -76,11 +90,6 @@ func (ws *Workspace) ValidateMove(id, taskDir string, pos *HandlerPos, to, actor
 			id, from, to, n, id)
 	}
 
-	if to == Backlog {
-		// Any stage may go back to the backlog (a deliberate action,
-		// confirmed in the TUI).
-		return nil
-	}
 	if _, ok := ws.WF.StageIndex(to); !ok {
 		return fmt.Errorf("unknown stage %q", to)
 	}
@@ -90,6 +99,9 @@ func (ws *Workspace) ValidateMove(id, taskDir string, pos *HandlerPos, to, actor
 	}
 	if actor == "user" && !manual {
 		return fmt.Errorf("%s: transition %s → %s is automation-only", id, from, to)
+	}
+	if to == "done" && ActiveSessionChecker != nil && ActiveSessionChecker(taskDir) {
+		return fmt.Errorf("%s: %s → done — an agent session is still running (stop it first)", id, from)
 	}
 	// Entry gates (needs): a file glob inside the task folder or check:<name>.
 	for _, need := range ws.stageByID(to).Needs {
@@ -128,6 +140,20 @@ func (ws *Workspace) checkNeed(taskDir, need string) error {
 				return fmt.Errorf("plan is not resolved (takos task resolve <id> once the plan is ready)")
 			}
 			return fmt.Errorf("requires check %s", name)
+		}
+		return nil
+	}
+	if need == "review:clean" {
+		round, _, err := LoadLatestRound(taskDir)
+		if err != nil {
+			return err
+		}
+		if round == nil {
+			return fmt.Errorf("no review round yet")
+		}
+		c := round.Counts()
+		if c[ReviewOpen] > 0 || c[ReviewRework] > 0 {
+			return fmt.Errorf("review findings are not all resolved (takos task review <id>)")
 		}
 		return nil
 	}

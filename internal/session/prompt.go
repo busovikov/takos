@@ -23,21 +23,43 @@ func RoleForStage(stage string) string { return stageRole[stage] }
 const genericPrompt = `You are working on task {{task.id}} "{{task.title}}".
 Read {{task.dir}}/task.md (Objective, Context) before doing anything.`
 
+// cliCheatSheet is appended to every prompt so an agent never has to
+// discover takos by running --help or poking around: this is the whole
+// surface it needs for moving its own task through the workflow.
+const cliCheatSheet = `takos — the only commands you need for this task (don't explore for more):
+  takos task move {{task.id}} <stage|next|prev|backlog>   move the task (next/prev = workflow order)
+  takos task resolve {{task.id}}                          mark the plan ready (the gate into implementation)
+  takos task review {{task.id}} [Rn] --resolve|--rework|--tech-debt   list, or triage one review finding
+  takos task comment {{task.id}} "TEXT"                    add a review remark
+  takos task logs {{task.id}} -f                           follow the task's current headless session until it ends
+  takos task show {{task.id}} / history {{task.id}}        current state / audit trail`
+
+// modeNote tells the agent whether anyone is watching, since that changes
+// what "done with this stage" should do next.
+func modeNote(headless bool) string {
+	if headless {
+		return `You are running headless: nobody reads anything you print here, and no reply is coming. Act on your own judgement — advance the task yourself with the commands above once your stage's work is done, instead of asking and waiting.`
+	}
+	return `You are running interactively: a human is watching this terminal. Once your stage's work is done, say so and propose the next step; if they agree, run the takos command yourself. If that move kicks off follow-up automation, run "takos task logs {{task.id}} -f" right after and wait for it to return before reporting the outcome and ending your turn.`
+}
+
 // Prompt renders the opening prompt of a fresh session: the role's template
-// from workflow.yaml (or a generic one) with {{…}} variables expanded.
-// extra fills the {{promptExtra}} token (rule-supplied addition).
-func Prompt(ws *core.Workspace, task *core.Task, taskDir, role, extra string) string {
+// from workflow.yaml (or a generic one), the mode note and the CLI cheat
+// sheet, with {{…}} variables expanded. extra fills {{promptExtra}} (a
+// rule-supplied addition); headless marks a session with nobody watching.
+func Prompt(ws *core.Workspace, task *core.Task, taskDir, role, extra string, headless bool) string {
 	tpl := genericPrompt
 	if role != "" {
 		if r, ok := ws.WF.Roles[role]; ok && strings.TrimSpace(r.Prompt) != "" {
 			tpl = r.Prompt
 		}
 	}
+	full := tpl + "\n\n" + modeNote(headless) + "\n\n" + cliCheatSheet
 	round := ""
 	if p, err := core.NewRoundPath(taskDir); err == nil {
 		round = filepath.Base(p)
 	}
-	return strings.TrimSpace(Expand(tpl, map[string]string{
+	return strings.TrimSpace(Expand(full, map[string]string{
 		"task.id":     task.Meta.ID,
 		"task.title":  task.Meta.Title,
 		"task.dir":    taskDir,

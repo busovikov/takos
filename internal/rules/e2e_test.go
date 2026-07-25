@@ -135,7 +135,8 @@ func gitLogCount(t *testing.T, dir string) int {
 }
 
 // TestFullCycleE2E is the B-phase CI end-to-end: one task rides every role
-// of the default workflow — context (auto), planner (manual), the
+// of the default workflow — context (auto), planner (driven directly here,
+// though a rule would chain it too), the
 // plan-resolved gate, executor (manual, hitting a usage limit on the way
 // in and resuming past it), handover (auto, a real git commit in a scratch
 // repo), reviewer (auto, chained off handover's finish) — and a human
@@ -181,7 +182,9 @@ func TestFullCycleE2E(t *testing.T) {
 		t.Fatalf("context role did not write task.md:\n%s", task.Body)
 	}
 
-	// planner is a manual session (no automation rule for it).
+	// plan-after-context would auto-spawn the planner too, but only on a
+	// later Scan — none happens between here and this manual entry, so it
+	// stays a deliberate, direct job in this test.
 	planJob, err := runnerd.PlanJob(ws, id, runnerd.JobOpts{})
 	if err != nil {
 		t.Fatal(err)
@@ -205,9 +208,10 @@ func TestFullCycleE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The executor's entry regenerates hand-off.md first (B2 contract) — a
-	// usage limit on the way in must block the executor and resume cleanly
-	// on the next entry, without ever starting the main session out of turn.
+	// The executor's first entry has no digest pre-run (nothing to condense
+	// yet — it reads plan.md directly), so a usage limit on the way in hits
+	// the main session itself; it must still resume cleanly on the next
+	// entry.
 	limitFlag := filepath.Join(t.TempDir(), "limit-once")
 	t.Setenv("MOCK_LIMIT_ONCE_FILE", limitFlag)
 
@@ -215,12 +219,15 @@ func TestFullCycleE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if blocked.Pre != nil {
+		t.Fatalf("first executor entry must have no digest pre-run: %+v", blocked.Pre)
+	}
 	outcome, execErr := blocked.Execute(ctx)
-	if outcome != session.OutcomeLimit || execErr == nil {
-		t.Fatalf("first executor entry = %s, %v — want a blocked digest limit", outcome, execErr)
+	if outcome != session.OutcomeLimit || execErr != nil {
+		t.Fatalf("first executor entry = %s, %v — want a blocked limit", outcome, execErr)
 	}
 	if _, err := os.ReadFile(filepath.Join(repoDir, "mockchange.txt")); err == nil {
-		t.Fatal("the executor ran despite its digest hitting a limit")
+		t.Fatal("the executor ran despite hitting a limit")
 	}
 
 	resumed, err := runnerd.PlanJob(ws, id, runnerd.JobOpts{})
