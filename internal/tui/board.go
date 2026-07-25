@@ -40,7 +40,7 @@ func (a *App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "n":
 		return a, a.startCreatePrompt(false)
 	case "b":
-		if r, ok := a.selected(); ok {
+		if r, ok := a.selected(); ok && r.Stage != "done" {
 			id := r.ID
 			a.confirm = &confirmState{
 				text: fmt.Sprintf("send %s %q to the backlog?", r.ID, r.Title),
@@ -169,7 +169,7 @@ func (a *App) viewBoard() string {
 		indent := strings.Repeat(" ", r.StageIdx*step)
 		title := truncate(r.Title, 44)
 		if r.Running {
-			title = "▶ " + title // a live agent session
+			title = a.spinner() + " " + title // a live agent session, animated
 		}
 		text := fmt.Sprintf("%s %s %s", r.ID, r.Prio, title)
 		if i == a.cur {
