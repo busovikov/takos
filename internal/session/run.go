@@ -95,7 +95,7 @@ func Build(ws *core.Workspace, task *core.Task, pos *core.HandlerPos, plan Entry
 		e.Argv = ResumeArgv(bin, e.UUID)
 	} else {
 		e.Name, e.UUID = plan.NewName, plan.NewUUID
-		e.Argv = NewArgv(bin, e.UUID, Prompt(ws, task, task.Dir, role, ""))
+		e.Argv = NewArgv(bin, e.UUID, Prompt(ws, task, task.Dir, role, "", false))
 	}
 	return e, nil
 }

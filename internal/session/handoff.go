@@ -18,16 +18,18 @@ const SummarizerRole = "summarizer"
 
 // stageHandoff pairs a stage with its digest: the file, the role whose
 // `handoff:` template shapes the sections, and whether the very first
-// session already has something to digest (hand-off.md is born on entering
-// implementation as a digest of planning; plan-hand-off.md has nothing to
-// say before the first planning session).
+// session already has something to digest. Neither does: the executor
+// reads plan.md directly on its first pass (nothing implementation-shaped
+// exists yet to summarize), and plan-hand-off.md has nothing to say before
+// the first planning session either. The digest only earns its keep once a
+// prior session of the same stage has left something behind.
 var stageHandoff = map[string]struct {
 	target      string
 	role        string
 	seedOnFirst bool
 }{
 	"planning":       {core.PlanHandOffFile, "planner", false},
-	"implementation": {core.HandOffFile, "executor", true},
+	"implementation": {core.HandOffFile, "executor", false},
 }
 
 // Handoff describes one due digest regeneration.

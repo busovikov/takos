@@ -84,6 +84,8 @@ func triage(ws *core.Workspace, taskDir, id, itemID string,
 		}
 		if res.MovedTo != "" {
 			ok("round triaged · %s → %s", id, res.MovedTo)
+		} else if res.Verdict == "done" {
+			ok("round triaged · all findings settled — takos task move %s done when ready", id)
 		}
 	} else {
 		round, _, _ := core.LoadLatestRound(taskDir)

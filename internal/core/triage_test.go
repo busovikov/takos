@@ -45,7 +45,7 @@ func inReview(t *testing.T, titles ...string) (*Workspace, *Task) {
 	return ws, task
 }
 
-func TestTriageResolvedRoundMovesToDone(t *testing.T) {
+func TestTriageResolvedRoundLeavesTaskInReviewForAHumanToClose(t *testing.T) {
 	ws, task := inReview(t, "First finding", "Second finding")
 	id := task.Meta.ID
 
@@ -62,17 +62,23 @@ func TestTriageResolvedRoundMovesToDone(t *testing.T) {
 		t.Fatalf("stage = %s, want review", pos.Stage)
 	}
 
-	// The last decision computes the verdict and moves the task.
+	// The last decision computes the verdict — but a "done" verdict does
+	// not auto-move the task; it stays in review until someone confirms it.
 	res, err = ws.TriageFinding(id, "R2", ReviewResolved)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Done || res.Verdict != "done" || res.MovedTo != "done" {
-		t.Fatalf("final triage: %+v, want verdict done and a move to done", res)
+	if !res.Done || res.Verdict != "done" || res.MovedTo != "" {
+		t.Fatalf("final triage: %+v, want verdict done and no auto-move", res)
 	}
 	pos, _ = ws.FindHandler(id)
-	if pos.Stage != "done" {
-		t.Errorf("stage = %s, want done", pos.Stage)
+	if pos.Stage != "review" {
+		t.Errorf("stage = %s, want review (done verdict must not auto-move)", pos.Stage)
+	}
+
+	// A human can now confirm the move, since review:clean is satisfied.
+	if _, err := ws.MoveTask(id, "done", "user", ""); err != nil {
+		t.Fatalf("manual move to done should be allowed once findings are clean: %v", err)
 	}
 }
 

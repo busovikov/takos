@@ -121,18 +121,25 @@ func AddComment(taskDir, id, text string) (itemID string, err error) {
 // HandoffFileName is the implementation digest artifact in the task folder.
 const HandoffFileName = "hand-off.md"
 
-// AppendReworkToHandoff copies a triaged round's rework findings into the
-// "From review" section of hand-off.md, so the executor's next session
-// opens straight on them. No rework findings — no touch.
-func AppendReworkToHandoff(taskDir, roundPath string, r *ReviewRound) error {
-	var lines []string
+// AppendReworkToHandoff copies a triaged round's rework findings — full
+// body, not just the title — into the "From review" section of hand-off.md,
+// so the executor's next session opens straight on what actually needs
+// fixing, with the command to resolve each one once it's done. No rework
+// findings — no touch.
+func AppendReworkToHandoff(taskDir, id, roundPath string, r *ReviewRound) error {
+	var blocks []string
 	for _, it := range r.Items {
-		if it.Status == ReviewRework {
-			lines = append(lines, fmt.Sprintf("- [%s · %s] %s",
-				filepath.Base(roundPath), it.ID, it.Title))
+		if it.Status != ReviewRework {
+			continue
 		}
+		block := fmt.Sprintf("- [%s · %s] %s", filepath.Base(roundPath), it.ID, it.Title)
+		if it.Body != "" {
+			block += "\n\n" + it.Body
+		}
+		block += fmt.Sprintf("\n\n  once fixed: takos task review %s %s --resolve", id, it.ID)
+		blocks = append(blocks, block)
 	}
-	if len(lines) == 0 {
+	if len(blocks) == 0 {
 		return nil
 	}
 	path := filepath.Join(taskDir, HandoffFileName)
@@ -142,9 +149,9 @@ func AppendReworkToHandoff(taskDir, roundPath string, r *ReviewRound) error {
 	}
 	sec := GetSection(body, "From review")
 	if sec != "" {
-		sec += "\n"
+		sec += "\n\n"
 	}
-	sec += strings.Join(lines, "\n")
+	sec += strings.Join(blocks, "\n\n")
 	body = SetSection(body, "From review", sec)
 	return fsstore.WriteFileAtomic(path, []byte(body), 0o644)
 }

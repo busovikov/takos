@@ -40,7 +40,10 @@ func TestHandoffRegenBeforeSecondSession(t *testing.T) {
 		t.Fatalf("first run: %s", outcome)
 	}
 
-	second, err := PlanJob(ws, id, JobOpts{})
+	// Planning's finished session collapses to resume headlessly by default
+	// (see PlanEntry); ForceNew is what actually pushes for the next
+	// generation and its handoff digest here.
+	second, err := PlanJob(ws, id, JobOpts{ForceNew: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +92,10 @@ exit 0`)
 	first, _ := PlanJob(ws, id, JobOpts{})
 	first.Execute(context.Background())
 
-	second, _ := PlanJob(ws, id, JobOpts{})
+	// Planning's finished session collapses to resume headlessly by default
+	// (see PlanEntry); ForceNew is what actually pushes for the next
+	// generation here, same as a caller that decided to move forward would.
+	second, _ := PlanJob(ws, id, JobOpts{ForceNew: true})
 	outcome, err := second.Execute(context.Background())
 	if outcome != session.OutcomeLimit || err == nil {
 		t.Fatalf("limited digest must block the session: %s, %v", outcome, err)
@@ -99,7 +105,7 @@ exit 0`)
 		t.Error("the main session started despite the digest limit")
 	}
 
-	third, err := PlanJob(ws, id, JobOpts{})
+	third, err := PlanJob(ws, id, JobOpts{ForceNew: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,9 +118,11 @@ exit 0`)
 }
 
 // hand-off.md is born on entering implementation: the stage scaffolds the
-// file, and the very first executor session is preceded by the summarizer
-// condensing the planning materials into it.
-func TestHandoffSeedsFirstImplementationSession(t *testing.T) {
+// (empty) file, but the executor reads plan.md directly on its first pass —
+// there's nothing implementation-shaped to digest yet, so the first session
+// has no pre-run. Only a later fresh entry, once a prior executor session
+// left something behind, earns the summarizer pass.
+func TestHandoffSkipsFirstImplementationSessionButRegensSecond(t *testing.T) {
 	mockAgent(t, "exit 0")
 	ws, task := newRunnerWS(t)
 	id := task.Meta.ID
@@ -129,17 +137,29 @@ func TestHandoffSeedsFirstImplementationSession(t *testing.T) {
 		t.Errorf("hand-off.md not scaffolded on entering implementation: %v", err)
 	}
 
-	job, err := PlanJob(ws, id, JobOpts{})
+	first, err := PlanJob(ws, id, JobOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if job.Role != "executor" || job.Pre == nil {
-		t.Fatalf("first executor session must seed the digest: %+v", job)
+	if first.Role != "executor" || first.Pre != nil {
+		t.Fatalf("first executor session must have no digest pre-run: %+v", first)
 	}
-	if job.Pre.Name != id+"-implementation-handoff#1" {
-		t.Errorf("pre name = %s", job.Pre.Name)
+	if outcome, _ := first.Execute(context.Background()); outcome != session.OutcomeFinished {
+		t.Fatalf("first run: %s", outcome)
 	}
-	prompt := job.Pre.Argv[len(job.Pre.Argv)-1]
+
+	second, err := PlanJob(ws, id, JobOpts{ForceNew: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pre := second.Pre
+	if pre == nil {
+		t.Fatal("second fresh executor session must regenerate the digest")
+	}
+	if pre.Name != id+"-implementation-handoff#1" {
+		t.Errorf("pre name = %s", pre.Name)
+	}
+	prompt := pre.Argv[len(pre.Argv)-1]
 	if !strings.Contains(prompt, core.HandOffFile) || !strings.Contains(prompt, "## From review") {
 		t.Errorf("digest prompt misses target/template:\n%s", prompt)
 	}

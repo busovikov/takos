@@ -105,7 +105,7 @@ func TestAppendReworkToHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := AppendReworkToHandoff(dir, "reviews/R-002.md", round); err != nil {
+	if err := AppendReworkToHandoff(dir, "T-0001", "reviews/R-002.md", round); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, HandoffFileName))
@@ -129,7 +129,7 @@ func TestAppendReworkToHandoff(t *testing.T) {
 	// A round with no rework findings must not create or touch the file.
 	empty := t.TempDir()
 	clean := &ReviewRound{Items: []ReviewItem{{ID: "R1", Title: "ok", Status: ReviewResolved}}}
-	if err := AppendReworkToHandoff(empty, "reviews/R-001.md", clean); err != nil {
+	if err := AppendReworkToHandoff(empty, "T-0002", "reviews/R-001.md", clean); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(empty, HandoffFileName)); !os.IsNotExist(err) {

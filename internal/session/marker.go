@@ -17,6 +17,12 @@ import (
 // lifecycle: pid while running, outcome once done. The board's ▶ indicator
 // and `x`/cancel read markers; history.log stays the chronicle.
 
+func init() {
+	// core.MoveTask refuses to move a task to done while a session is
+	// running; core can't import session (cycle), so wire it here.
+	core.ActiveSessionChecker = func(taskDir string) bool { return Active(taskDir) != nil }
+}
+
 const SessionsDirName = "sessions"
 
 type Marker struct {

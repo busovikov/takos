@@ -139,6 +139,7 @@ stages:
     scaffold: [hand-off.md]
   - id: review
   - id: done
+    needs: ["review:clean"]
 
 transitions:
   - { from: backlog,        to: refinement,     manual: true }   # pull into a sprint
@@ -148,26 +149,32 @@ transitions:
   - { from: implementation, to: planning,       manual: true }   # step back
   - { from: implementation, to: review,         manual: true }
   - { from: review,         to: implementation, manual: false }  # auto rework after triage
-  - { from: review,         to: done,           manual: false }  # auto after triage
+  - { from: review,         to: done,           manual: true }   # human confirms once findings are clean
+  - { from: done,           to: review,         manual: true }   # reopen
 
 roles:
   context:
     agent: claude-code
-    permissionMode: safe
+    permissionMode: auto
     prompt: |
       Study the repository {{task.repo}} in the context of task {{task.id}}
       "{{task.title}}". Read {{task.dir}}/task.md (Objective). Add a
       "## Context" section to task.md: where the relevant code lives and
-      which constraints apply. Do not modify any code.
+      which constraints apply. Do not modify any code — writing that one
+      section to task.md is the only file change you make.
   planner:
     agent: claude-code
-    permissionMode: safe
+    permissionMode: auto
     prompt: |
       You are planning task {{task.id}} "{{task.title}}".
       Read {{task.dir}}/task.md (Objective, Context) and, if present,
       {{task.dir}}/plan-hand-off.md (decisions from previous sessions — do
       not revisit them without a reason). Write a step-by-step plan to
-      {{task.dir}}/plan.md. Do not modify any code. {{promptExtra}}
+      {{task.dir}}/plan.md — that file is the only change you make, do not
+      touch any code. The move into implementation is a deliberate human
+      call ("takos task resolve" then "takos task move"), not yours to
+      make — stop once the draft is down, even if you're confident it's
+      ready. {{promptExtra}}
     outputs: [plan.md]
     handoff: |
       ## Decisions
@@ -179,7 +186,13 @@ roles:
     prompt: |
       Implement task {{task.id}} following {{task.dir}}/plan.md.
       First read {{task.dir}}/hand-off.md (previous progress, the
-      "From review" section). Run the tests. {{promptExtra}}
+      "From review" section). For each finding listed there, once you have
+      fixed it, resolve it yourself with the "takos task review" command
+      given right after it — don't leave it for someone else to close. Only
+      skip a finding if you disagree it's actually fixed. Run the tests.
+      Once they pass and hand-off.md is updated, move the task on with
+      "takos task move {{task.id}} review" (see the mode note above for
+      whether to ask first). {{promptExtra}}
     handoff: |
       ## Done
       ## Repo state
@@ -195,12 +208,12 @@ roles:
       "## Docs" and "## Testing" sections reflecting the actual work.
   reviewer:
     agent: claude-code
-    permissionMode: safe
+    permissionMode: auto
     prompt: |
       Review the changes of task {{task.id}} in {{task.repo}}.
       Write every finding to {{task.dir}}/reviews/{{round}} as a block
-      "## [R<n>] <title> — open" with a description and a diff. Do not
-      modify any code.
+      "## [R<n>] <title> — open" with a description and a diff. That file
+      is the only change you make — do not modify any code.
   summarizer:
     agent: claude-code
     permissionMode: auto
@@ -220,6 +233,10 @@ rules:
   - id: context-on-planning
     on: enter planning
     spawn: { role: context }
+  - id: plan-after-context
+    on: session-finished
+    if: role == context && outcome == finished
+    spawn: { role: planner }
   - id: handover-on-review
     on: enter review
     spawn: { role: handover }

@@ -17,10 +17,11 @@ func handoffWS(t *testing.T) *core.Workspace {
 	return ws
 }
 
-// TestNeedHandoff pins the digest convention: plan-hand-off.md follows
-// planning sessions (nothing to digest before the first), hand-off.md is
-// born on entering implementation as a digest of planning and then follows
-// implementation sessions. The stage role's handoff template is the switch.
+// TestNeedHandoff pins the digest convention: neither plan-hand-off.md nor
+// hand-off.md has anything to digest before the first session of their
+// stage (the executor reads plan.md directly on its first pass), so both
+// skip on "first" and only follow later sessions of the same stage. The
+// stage role's handoff template is the switch.
 func TestNeedHandoff(t *testing.T) {
 	ws := handoffWS(t)
 	cases := []struct {
@@ -31,7 +32,7 @@ func TestNeedHandoff(t *testing.T) {
 		{"planning", "first", false, ""},
 		{"planning", "finished", true, core.PlanHandOffFile},
 		{"planning", "interrupted", true, core.PlanHandOffFile},
-		{"implementation", "first", true, core.HandOffFile},
+		{"implementation", "first", false, ""},
 		{"implementation", "finished", true, core.HandOffFile},
 		{"refinement", "finished", false, ""},
 		{"review", "finished", false, ""},
@@ -88,9 +89,9 @@ func TestHandoffPrompt(t *testing.T) {
 		Dir:  "/ws/tasks/T-0001-x",
 		Meta: core.TaskMeta{ID: "T-0001", Title: "X"},
 	}
-	h, ok := NeedHandoff(ws, "implementation", "first")
+	h, ok := NeedHandoff(ws, "implementation", "finished")
 	if !ok {
-		t.Fatal("no handoff for implementation/first")
+		t.Fatal("no handoff for implementation/finished")
 	}
 	got := HandoffPrompt(ws, task, h)
 	for _, want := range []string{
