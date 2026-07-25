@@ -66,6 +66,17 @@ type App struct {
 	wp      *wsPickState
 
 	fsw *watch.Watcher // live board: nil when fsnotify is unavailable
+
+	spinnerFrame int // ticks once a second so ▶ animates and elapsed times stay live
+}
+
+// spinnerFrames animates the "a session is running" indicator.
+var spinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+
+// spinner returns the current running-session frame — one character, fed by
+// the 1s tick regardless of what changed the filesystem last.
+func (a *App) spinner() string {
+	return string(spinnerFrames[a.spinnerFrame%len(spinnerFrames)])
 }
 
 type row struct {
@@ -77,6 +88,8 @@ type row struct {
 type clearStatusMsg struct{ id int }
 type editorDoneMsg struct{}
 type fsChangedMsg struct{}
+type tickMsg struct{}
+type refreshMsg struct{}
 
 // Run starts the TUI over an opened workspace.
 func Run(ws *core.Workspace, repo string) error {
@@ -92,7 +105,7 @@ func Run(ws *core.Workspace, repo string) error {
 	return err
 }
 
-func (a *App) Init() tea.Cmd { return a.waitFs() }
+func (a *App) Init() tea.Cmd { return tea.Batch(a.waitFs(), a.tick(), a.refresh()) }
 
 // waitFs arms a one-shot wait on the watcher channel.
 func (a *App) waitFs() tea.Cmd {
@@ -104,6 +117,40 @@ func (a *App) waitFs() tea.Cmd {
 			return nil
 		}
 		return fsChangedMsg{}
+	}
+}
+
+// tick advances the spinner frame at animation speed. Session-state facts
+// (elapsed time, running/finished) are recomputed on every redraw anyway,
+// so this alone is enough to keep them visibly live.
+func (a *App) tick() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+// refresh re-reads task state once a second regardless of the filesystem
+// watcher: the watcher only covers handler symlinks (backlog/sprints stage
+// folders), not what changes inside a task's own directory — a session
+// starting, finishing or being interrupted only touches sessions/*.json and
+// history.log there, which the watcher never sees at all. Without this,
+// the board's ▶ and a card's action menu ("interrupt" vs. "continue") would
+// only ever update on an unrelated stage move or by leaving and reopening.
+func (a *App) refresh() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg { return refreshMsg{} })
+}
+
+// refreshView re-reads the workspace and whatever screen is showing —
+// shared by the filesystem watcher and the periodic poll below.
+func (a *App) refreshView() {
+	a.reload()
+	if a.prompt == nil && a.confirm == nil {
+		switch a.scr {
+		case scrCard:
+			if a.card != nil {
+				a.openCard(a.card.id)
+			}
+		case scrBacklog:
+			a.refreshBacklog()
+		}
 	}
 }
 
@@ -140,26 +187,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.reload()
 		a.openCard(m.id)
 		if a.card != nil && a.card.id == m.id {
-			if line := sessionLine(a.card.task.Dir); line != "" {
+			if line := sessionLine(a.card.task.Dir, a.spinner()); line != "" {
 				return a, a.flash(stDim, "%s", line)
 			}
 		}
 		return a, nil
+	case tickMsg:
+		a.spinnerFrame++
+		return a, a.tick()
+	case refreshMsg:
+		a.refreshView()
+		return a, a.refresh()
 	case fsChangedMsg:
 		// Live board: an external mv or a daemon rule changed the
 		// workspace — re-read the filesystem and redraw. Modal input and
 		// the triage carousel are left alone mid-flow.
-		a.reload()
-		if a.prompt == nil && a.confirm == nil {
-			switch a.scr {
-			case scrCard:
-				if a.card != nil {
-					a.openCard(a.card.id)
-				}
-			case scrBacklog:
-				a.refreshBacklog()
-			}
-		}
+		a.refreshView()
 		return a, a.waitFs()
 	}
 
@@ -263,6 +306,7 @@ func (a *App) rowFor(h core.HandlerPos) (row, bool) {
 		return r, false
 	}
 	r.Dir = dir
+	session.RepairStale(dir)
 	r.Running = session.Active(dir) != nil
 	task, err := core.LoadTask(dir)
 	if err != nil {

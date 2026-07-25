@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -86,16 +87,24 @@ func (a *App) buildSession(id string, resume bool, forceNew bool) tea.Cmd {
 	return a.runSession(e)
 }
 
-// sessionLine renders the card's session fact: ▶ running · 12m — or the
-// last outcome with its icon.
-func sessionLine(taskDir string) string {
+// sessionLine renders the card's session fact: <spinner> running · 12m — or
+// the last outcome with its icon. spin is the current animation frame, so
+// the line visibly moves even when nothing else changed on disk.
+func sessionLine(taskDir, spin string) string {
 	ms := session.Markers(taskDir)
 	if len(ms) == 0 {
 		return ""
 	}
 	m := ms[len(ms)-1]
+	// The digest regeneration is a brief headless prep step ahead of the
+	// real session — labelled plainly so it doesn't read as "the task is
+	// being worked on in the background".
+	label := m.Name
+	if isHandoffDigest(m.Name) {
+		label = "hand-off digest (prep — the real session starts right after)"
+	}
 	if m.Running() {
-		return fmt.Sprintf("▶ %s · running · %s", m.Name, compactDur(time.Since(m.StartedAt)))
+		return fmt.Sprintf("%s %s · running · %s", spin, label, compactDur(time.Since(m.StartedAt)))
 	}
 	icon := map[string]string{
 		session.OutcomeFinished:    "✔",
@@ -105,7 +114,14 @@ func sessionLine(taskDir string) string {
 	if icon == "" {
 		icon = "·"
 	}
-	return fmt.Sprintf("%s %s · %s", icon, m.Name, m.Outcome)
+	return fmt.Sprintf("%s %s · %s", icon, label, m.Outcome)
+}
+
+// isHandoffDigest reports whether a session name is the headless summarizer
+// pre-run (session.HandoffName's "<stage>-handoff#N" convention) rather
+// than the stage's own role session.
+func isHandoffDigest(name string) bool {
+	return strings.Contains(name, "-handoff#")
 }
 
 func compactDur(d time.Duration) string {
