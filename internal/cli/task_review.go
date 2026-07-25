@@ -106,11 +106,7 @@ func newTaskCommentCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			taskDir, err := ws.FindTaskDir(args[0])
-			if err != nil {
-				return err
-			}
-			itemID, err := core.AddComment(taskDir, args[0], args[1])
+			itemID, err := ws.AddReviewComment(args[0], args[1])
 			if err != nil {
 				return err
 			}

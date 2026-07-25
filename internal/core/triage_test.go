@@ -152,3 +152,39 @@ func TestTriageUnknownFinding(t *testing.T) {
 		t.Error("triaging an unknown finding must be refused")
 	}
 }
+
+// Only a task sitting in review may gain findings — earlier-stage agents
+// calling `takos task comment` must not mint a round that leaks into the pool.
+func TestAddReviewCommentGatedToReviewStage(t *testing.T) {
+	ws := newTestWS(t)
+	task, _, err := ws.CreateTask("Comment gate", CreateOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fresh task lives in the backlog — a comment here must be refused and
+	// must not create reviews/.
+	if _, err := ws.AddReviewComment(task.Meta.ID, "premature finding"); err == nil {
+		t.Fatal("comment outside review must be refused")
+	}
+	if _, err := os.Stat(filepath.Join(task.Dir, ReviewsDir)); !os.IsNotExist(err) {
+		t.Errorf("a refused comment must not create %s/", ReviewsDir)
+	}
+
+	// Walk it into review; now a comment is accepted.
+	for _, stage := range []string{"planning", "implementation", "review"} {
+		if stage == "implementation" {
+			if err := SetCheck(task.Dir, "plan-resolved"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := ws.MoveTask(task.Meta.ID, stage, "user", ""); err != nil {
+			t.Fatalf("move to %s: %v", stage, err)
+		}
+	}
+	if _, err := ws.AddReviewComment(task.Meta.ID, "a real finding"); err != nil {
+		t.Fatalf("comment in review must be accepted: %v", err)
+	}
+	if _, _, err := LoadLatestRound(task.Dir); err != nil {
+		t.Fatalf("round should exist after an in-review comment: %v", err)
+	}
+}

@@ -141,14 +141,14 @@ func (a *App) buildCardMenu() {
 				func(a *App) tea.Cmd { a.openCarousel(); return nil }})
 		}
 		m = append(m, menuItem{"c", "add a finding", func(a *App) tea.Cmd {
-			id, dir := c.id, c.task.Dir
+			id := c.id
 			a.prompt = newAreaPrompt(id+" · new finding:",
 				"Enter — add to the current round · Ctrl+J — new line · Esc — cancel",
 				func(a *App, text string) tea.Cmd {
 					if text == "" {
 						return nil
 					}
-					itemID, err := core.AddComment(dir, id, text)
+					itemID, err := a.ws.AddReviewComment(id, text)
 					if err != nil {
 						return a.flash(stErr, "✗ %v", err)
 					}

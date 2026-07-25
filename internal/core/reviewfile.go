@@ -87,6 +87,27 @@ func OpenReviewCount(taskDir string) (int, error) {
 	return round.Counts()[ReviewOpen], nil
 }
 
+// AddReviewComment adds a finding to the task's review round, but only while
+// the task is actually in the review stage. Review findings (reviews/R-00N.md)
+// are the reviewer's artifact; without this gate any earlier-stage agent
+// (context, planner, executor) could call `takos task comment` and mint a
+// round that then leaks into the review pool. The TUI hides "add a finding"
+// outside review — this holds the CLI to the same rule.
+func (ws *Workspace) AddReviewComment(id, text string) (itemID string, err error) {
+	pos, err := ws.FindHandler(id)
+	if err != nil {
+		return "", err
+	}
+	if pos.Stage != "review" {
+		return "", fmt.Errorf("%s is in %s, not review — findings can only be added during review", id, pos.Stage)
+	}
+	taskDir, err := ws.FindTaskDir(id)
+	if err != nil {
+		return "", err
+	}
+	return AddComment(taskDir, id, text)
+}
+
 // AddComment appends a user remark as an open item to the latest round,
 // creating R-001 when no round exists yet.
 func AddComment(taskDir, id, text string) (itemID string, err error) {

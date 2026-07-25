@@ -30,7 +30,7 @@ const cliCheatSheet = `takos — the only commands you need for this task (don't
   takos task move {{task.id}} <stage|next|prev|backlog>   move the task (next/prev = workflow order)
   takos task resolve {{task.id}}                          mark the plan ready (the gate into implementation)
   takos task review {{task.id}} [Rn] --resolve|--rework|--tech-debt   list, or triage one review finding
-  takos task comment {{task.id}} "TEXT"                    add a review remark
+  takos task comment {{task.id}} "TEXT"                    add a review finding (review stage only)
   takos task logs {{task.id}} -f                           follow the task's current headless session until it ends
   takos task show {{task.id}} / history {{task.id}}        current state / audit trail`
 
