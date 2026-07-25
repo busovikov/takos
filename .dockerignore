@@ -1,0 +1,7 @@
+.git
+.github
+takos
+bin/
+dist/
+web/node_modules
+*.log
