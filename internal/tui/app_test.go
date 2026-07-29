@@ -234,6 +234,41 @@ func TestEscFromCardReturnsToOrigin(t *testing.T) {
 	}
 }
 
+func TestSendToBacklogFromCardReturnsToOrigin(t *testing.T) {
+	a := newTestApp(t)
+	task, _, _ := a.ws.CreateTask("Next sprint task", core.CreateOpts{Backlog: true})
+	a.reload()
+
+	// Pull it into the next (non-active) sprint — it still shows in the
+	// backlog screen's "next" section.
+	send(a, "B")
+	send(a, "s")
+	pos, _ := a.ws.FindHandler(task.Meta.ID)
+	if pos.Area != core.AreaSprint || pos.Sprint != "sprint-2" {
+		t.Fatalf("after s: %+v", pos)
+	}
+
+	// Open the card from the backlog screen and send it straight back to
+	// the backlog from the card's own menu.
+	send(a, "enter")
+	if a.scr != scrCard {
+		t.Fatal("Enter on a backlog row must open the card")
+	}
+	send(a, "b")
+	if a.confirm == nil {
+		t.Fatal("b must ask for confirmation")
+	}
+	send(a, "enter")
+
+	pos, _ = a.ws.FindHandler(task.Meta.ID)
+	if pos.Area != core.AreaBacklog {
+		t.Fatalf("after confirm: %+v", pos)
+	}
+	if a.scr != scrBacklog {
+		t.Fatalf("must return to the backlog it was opened from, got %v", a.scr)
+	}
+}
+
 func TestSprintScreenClose(t *testing.T) {
 	a := newTestApp(t)
 	send(a, "S")

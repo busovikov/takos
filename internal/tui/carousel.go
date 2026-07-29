@@ -76,11 +76,10 @@ func (a *App) triage(st core.ReviewStatus) tea.Cmd {
 		msg = fmt.Sprintf("✔ %s → tech-debt · %s created in the backlog", res.ItemID, res.DebtID)
 	}
 
-	// A fully triaged round auto-moved the task — back to the board.
+	// A fully triaged round auto-moved the task — back to its origin screen.
 	if res.Done {
 		if res.MovedTo != "" {
-			a.reload()
-			a.scr = scrBoard
+			a.leaveCard()
 			return a.flash(stOK, "✔ round triaged · %s → %s", c.id, res.MovedTo)
 		}
 		a.openCard(c.id)

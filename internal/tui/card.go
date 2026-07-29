@@ -199,11 +199,11 @@ func (a *App) buildCardMenu() {
 				text: fmt.Sprintf("send %s %q to the backlog?", id, title),
 				yes: func(a *App) tea.Cmd {
 					res, err := a.ws.MoveTask(id, core.Backlog, "user", "")
-					a.reload()
 					if err != nil {
+						a.reload()
 						return a.flash(stErr, "✗ %v", err)
 					}
-					a.scr = scrBoard
+					a.leaveCard()
 					return a.flash(stOK, "✔ %s → backlog", res.ID)
 				},
 			}
@@ -241,6 +241,19 @@ func editorCmd(dir, file string) func(*App) tea.Cmd {
 	}
 }
 
+// leaveCard closes the card and returns to whichever screen opened it
+// (board or backlog), refreshing that screen's rows.
+func (a *App) leaveCard() {
+	a.scr = a.cardFrom
+	if a.scr == scrBacklog && a.bl != nil {
+		a.refreshBacklog()
+	} else {
+		a.scr = scrBoard
+		a.reload()
+	}
+	a.cardFrom = scrBoard
+}
+
 func (a *App) updateCard(msg tea.Msg) (tea.Model, tea.Cmd) {
 	key, isKey := msg.(tea.KeyMsg)
 	if !isKey {
@@ -249,14 +262,7 @@ func (a *App) updateCard(msg tea.Msg) (tea.Model, tea.Cmd) {
 	c := a.card
 	switch key.String() {
 	case "esc", "q":
-		a.scr = a.cardFrom
-		if a.scr == scrBacklog && a.bl != nil {
-			a.refreshBacklog()
-		} else {
-			a.scr = scrBoard
-			a.reload()
-		}
-		a.cardFrom = scrBoard
+		a.leaveCard()
 		return a, nil
 	case "up", "k":
 		if c.sel > 0 {
