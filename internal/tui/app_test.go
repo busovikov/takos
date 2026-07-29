@@ -203,6 +203,37 @@ func TestBacklogScreenTake(t *testing.T) {
 	}
 }
 
+func TestEscFromCardReturnsToOrigin(t *testing.T) {
+	a := newTestApp(t)
+	a.ws.CreateTask("Board task", core.CreateOpts{})
+	a.reload()
+
+	// Opened from the board: Esc must return to the board.
+	send(a, "enter")
+	if a.scr != scrCard {
+		t.Fatal("Enter must open the card")
+	}
+	send(a, "esc")
+	if a.scr != scrBoard {
+		t.Fatalf("Esc from a board-opened card must return to the board, got %v", a.scr)
+	}
+
+	// Opened from the backlog: Esc must return to the backlog, not the board.
+	a.ws.CreateTask("Backlog task", core.CreateOpts{Backlog: true})
+	send(a, "B")
+	if a.scr != scrBacklog {
+		t.Fatal("B must open the backlog screen")
+	}
+	send(a, "enter")
+	if a.scr != scrCard {
+		t.Fatal("Enter on a backlog row must open the card")
+	}
+	send(a, "esc")
+	if a.scr != scrBacklog {
+		t.Fatalf("Esc from a backlog-opened card must return to the backlog, got %v", a.scr)
+	}
+}
+
 func TestSprintScreenClose(t *testing.T) {
 	a := newTestApp(t)
 	send(a, "S")
