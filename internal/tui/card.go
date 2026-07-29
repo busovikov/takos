@@ -177,6 +177,26 @@ func (a *App) buildCardMenu() {
 		}})
 	}
 
+	if c.pos.Area == core.AreaBacklog {
+		m = append(m, menuItem{"s", "send to next sprint", func(a *App) tea.Cmd {
+			id, title := c.id, c.task.Meta.Title
+			first := a.ws.WF.Stages[0].ID
+			a.confirm = &confirmState{
+				text: fmt.Sprintf("send %s %q to the next sprint?", id, title),
+				yes: func(a *App) tea.Cmd {
+					res, err := a.ws.MoveTask(id, first, "user", "next")
+					a.reload()
+					if err != nil {
+						return a.flash(stErr, "✗ %v", err)
+					}
+					a.leaveCard()
+					return a.flash(stOK, "✔ %s → next sprint (%s)", res.ID, res.To)
+				},
+			}
+			return nil
+		}})
+	}
+
 	if next, ok := a.ws.NextStage(c.pos.Stage); sprintActive && ok {
 		m = append(m, menuItem{"→", "move to " + next, func(a *App) tea.Cmd {
 			res, err := a.ws.MoveTask(c.id, next, "user", "")
