@@ -49,6 +49,11 @@ func Plan(ws *core.Workspace, id string) (*core.Task, *core.HandlerPos, EntryPla
 	if pos.Stage == core.Backlog {
 		return nil, nil, none, fmt.Errorf("%s is in the backlog — pull it into a sprint first (takos task take %s)", id, id)
 	}
+	if pos.Area == core.AreaSprint {
+		if active, err := ws.ActiveSprint(); err != nil || pos.Sprint != active.Name {
+			return nil, nil, none, fmt.Errorf("%s: sprint %s is not active — no sessions", id, pos.Sprint)
+		}
+	}
 
 	RepairStale(taskDir)
 	if m := Active(taskDir); m != nil {

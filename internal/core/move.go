@@ -82,6 +82,13 @@ func (ws *Workspace) ValidateMove(id, taskDir string, pos *HandlerPos, to, actor
 		return nil
 	}
 
+	if pos.Area == AreaSprint {
+		active, err := ws.ActiveSprint()
+		if err != nil || pos.Sprint != active.Name {
+			return fmt.Errorf("%s: sprint %s is not active — moves are not allowed", id, pos.Sprint)
+		}
+	}
+
 	// Untriaged review findings block every other move.
 	if n, err := OpenReviewCount(taskDir); err != nil {
 		return err

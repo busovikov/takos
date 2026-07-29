@@ -32,7 +32,8 @@ type BoardTask struct {
 	Title       string       `json:"title"`
 	Priority    string       `json:"priority"`
 	Stage       string       `json:"stage"`
-	Area        string       `json:"area"` // sprint | backlog
+	Area        string       `json:"area"`             // sprint | backlog
+	Sprint      string       `json:"sprint,omitempty"` // set when area is "sprint"
 	Repo        string       `json:"repo,omitempty"`
 	Labels      []string     `json:"labels,omitempty"`
 	Paused      bool         `json:"paused,omitempty"`
@@ -80,7 +81,7 @@ func buildBoard(name string, ws *core.Workspace) (*Board, error) {
 		}
 		bt := BoardTask{
 			ID: id, Title: task.Meta.Title, Priority: task.Meta.Priority,
-			Stage: h.Stage, Area: h.Area, Repo: task.Meta.Repo,
+			Stage: h.Stage, Area: h.Area, Sprint: h.Sprint, Repo: task.Meta.Repo,
 			Labels: task.Meta.Labels, Paused: task.Meta.Automation == "paused",
 			Session: latestSession(taskDir),
 		}
@@ -92,6 +93,11 @@ func buildBoard(name string, ws *core.Workspace) (*Board, error) {
 			b.Backlog = append(b.Backlog, bt)
 		case active != nil && h.Sprint == active.Name:
 			b.Tasks = append(b.Tasks, bt)
+		case h.Area == core.AreaSprint:
+			// A task in a non-active sprint (e.g. "next") isn't on the active
+			// staircase — surface it in the backlog list so it stays visible;
+			// its Sprint field marks it as not eligible for stage moves.
+			b.Backlog = append(b.Backlog, bt)
 		}
 	}
 	sortTasks(b.Tasks)

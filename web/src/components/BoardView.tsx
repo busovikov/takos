@@ -23,12 +23,14 @@ function sessionMark(t: BoardTask): { glyph: string; title: string; cls: string 
 function TaskChip({
   task,
   stages,
+  activeSprint,
   onOpen,
   onMove,
   busy,
 }: {
   task: BoardTask
   stages: string[]
+  activeSprint?: string
   onOpen: (id: string) => void
   onMove: (id: string, to: string) => void
   busy: boolean
@@ -37,6 +39,9 @@ function TaskChip({
   const prev = idx > 0 ? stages[idx - 1] : null
   const next = idx >= 0 && idx < stages.length - 1 ? stages[idx + 1] : null
   const mark = sessionMark(task)
+  // A task sitting in a non-active sprint (e.g. "next") isn't on the active
+  // staircase — the server refuses moves for it, so don't offer them either.
+  const canMove = task.area === 'sprint' && (!task.sprint || task.sprint === activeSprint)
 
   return (
     <div className="chip" onClick={() => onOpen(task.id)}>
@@ -60,7 +65,7 @@ function TaskChip({
         )}
       </div>
       <div className="chip-title">{task.title}</div>
-      {task.area === 'sprint' && (
+      {canMove && (
         <div className="chip-moves" onClick={e => e.stopPropagation()}>
           <button disabled={!prev || busy} onClick={() => prev && onMove(task.id, prev)} title={prev ? `move to ${prev}` : ''}>
             ←
@@ -104,7 +109,7 @@ export function BoardView({
           const col = board.stages.indexOf(t.stage)
           return (
             <div key={t.id} style={{ gridColumn: (col < 0 ? 0 : col) + 1, gridRow: r + 2 }}>
-              <TaskChip task={t} stages={board.stages} onOpen={onOpen} onMove={onMove} busy={busy} />
+              <TaskChip task={t} stages={board.stages} activeSprint={board.sprint} onOpen={onOpen} onMove={onMove} busy={busy} />
             </div>
           )
         })}
@@ -116,7 +121,7 @@ export function BoardView({
           <h2>Backlog <span className="count">{board.backlog.length}</span></h2>
           <div className="backlog-grid">
             {board.backlog.map(t => (
-              <TaskChip key={t.id} task={t} stages={board.stages} onOpen={onOpen} onMove={onMove} busy={busy} />
+              <TaskChip key={t.id} task={t} stages={board.stages} activeSprint={board.sprint} onOpen={onOpen} onMove={onMove} busy={busy} />
             ))}
           </div>
         </section>

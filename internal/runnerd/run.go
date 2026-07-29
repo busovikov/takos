@@ -96,6 +96,11 @@ func ResumeJob(ws *core.Workspace, id, sessionName, role string) (*Job, error) {
 	if pos.Area == core.AreaArchive {
 		return nil, fmt.Errorf("%s is archived (%s) — no sessions", id, pos.Sprint)
 	}
+	if pos.Area == core.AreaSprint {
+		if active, err := ws.ActiveSprint(); err != nil || pos.Sprint != active.Name {
+			return nil, fmt.Errorf("%s: sprint %s is not active — no sessions", id, pos.Sprint)
+		}
+	}
 	stage := session.StageOf(task.Meta.ID, sessionName)
 	if stage == "" {
 		return nil, fmt.Errorf("%q is not a session of %s", sessionName, task.Meta.ID)

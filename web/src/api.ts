@@ -18,6 +18,7 @@ export interface BoardTask {
   priority: string
   stage: string
   area: string
+  sprint?: string
   repo?: string
   labels?: string[]
   paused?: boolean

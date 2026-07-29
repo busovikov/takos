@@ -73,10 +73,14 @@ func (e *Engine) Scan(ctx context.Context) []string {
 	if err != nil {
 		return []string{fmt.Sprintf("rules: %v", err)}
 	}
+	active, activeErr := e.ws.ActiveSprint()
 	var actions []string
 	seen := map[string]bool{}
 	for _, h := range handlers {
 		if h.Area == core.AreaBacklog || h.Area == core.AreaArchive {
+			continue
+		}
+		if h.Area == core.AreaSprint && (activeErr != nil || h.Sprint != active.Name) {
 			continue
 		}
 		name := filepath.Base(h.Path)
