@@ -48,9 +48,10 @@ type App struct {
 	repo string // repo filter ("" — no filter)
 	w, h int
 
-	scr    screen
-	status string
-	stID   int
+	scr      screen
+	cardFrom screen // screen to return to on Esc from scrCard
+	status   string
+	stID     int
 
 	rows     []row // board rows (active sprint)
 	cur      int

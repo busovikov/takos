@@ -249,8 +249,14 @@ func (a *App) updateCard(msg tea.Msg) (tea.Model, tea.Cmd) {
 	c := a.card
 	switch key.String() {
 	case "esc", "q":
-		a.scr = scrBoard
-		a.reload()
+		a.scr = a.cardFrom
+		if a.scr == scrBacklog && a.bl != nil {
+			a.refreshBacklog()
+		} else {
+			a.scr = scrBoard
+			a.reload()
+		}
+		a.cardFrom = scrBoard
 		return a, nil
 	case "up", "k":
 		if c.sel > 0 {

@@ -80,6 +80,7 @@ func (a *App) updateBacklog(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if r, ok := a.blSelected(); ok {
+			a.cardFrom = scrBacklog
 			a.openCard(r.ID)
 		}
 	case "n":

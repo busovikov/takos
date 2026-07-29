@@ -35,6 +35,7 @@ func (a *App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if r, ok := a.selected(); ok {
+			a.cardFrom = scrBoard
 			a.openCard(r.ID)
 		}
 	case "n":
