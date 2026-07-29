@@ -85,9 +85,18 @@ func (a *App) buildCardMenu() {
 	c := a.card
 	var m []menuItem
 
+	// A task in a non-active sprint (e.g. "next") isn't on the active
+	// staircase — the backend refuses moves and session starts for it, so
+	// don't offer them either.
+	sprintActive := true
+	if c.pos.Area == core.AreaSprint {
+		active, err := a.ws.ActiveSprint()
+		sprintActive = err == nil && c.pos.Sprint == active.Name
+	}
+
 	// Agent session actions: contextual per the entry policy; the
 	// recommended action goes first.
-	if c.pos.Area != core.AreaArchive && c.pos.Stage != core.Backlog {
+	if sprintActive && c.pos.Area != core.AreaArchive && c.pos.Stage != core.Backlog && c.pos.Stage != "done" {
 		if active := session.Active(c.task.Dir); active != nil {
 			name, pid := active.Name, active.PID
 			label := name
@@ -168,7 +177,7 @@ func (a *App) buildCardMenu() {
 		}})
 	}
 
-	if next, ok := a.ws.NextStage(c.pos.Stage); ok {
+	if next, ok := a.ws.NextStage(c.pos.Stage); sprintActive && ok {
 		m = append(m, menuItem{"→", "move to " + next, func(a *App) tea.Cmd {
 			res, err := a.ws.MoveTask(c.id, next, "user", "")
 			a.reload()
