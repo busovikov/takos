@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -184,6 +185,48 @@ func TestCancelSendsSIGTERM(t *testing.T) {
 	events, _ := core.ReadHistory(task.Dir)
 	if !hasSession(events, "interrupted", 1) {
 		t.Error("no interrupted record in history")
+	}
+}
+
+func TestReleaseMarksFinishedWithoutStopping(t *testing.T) {
+	mockAgent(t, "trap 'exit 143' TERM\nwhile true; do sleep 0.1; done")
+	ws, task := newSessionWS(t)
+	id := task.Meta.ID
+
+	e := mustPlanAndBuild(t, ws, id, false)
+	done := make(chan string, 1)
+	go func() {
+		outcome, _ := e.Run()
+		done <- outcome
+	}()
+
+	waitCond(t, 3*time.Second, func() bool { return Active(task.Dir) != nil })
+	m, err := Release(task.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The marker reads finished right away — the process itself is
+	// untouched, still running.
+	if Active(task.Dir) != nil {
+		t.Error("session still counts as running after Release")
+	}
+	events, _ := core.ReadHistory(task.Dir)
+	if !hasSession(events, "finished", 1) {
+		t.Error("no finished record in history")
+	}
+	select {
+	case <-done:
+		t.Fatal("process exited on its own — Release should not have touched it")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// Clean up: the mock agent only dies on SIGTERM.
+	syscall.Kill(m.PID, syscall.SIGTERM)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("mock agent did not die after cleanup SIGTERM")
 	}
 }
 

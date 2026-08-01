@@ -201,3 +201,21 @@ func Cancel(taskDir string) (*Marker, error) {
 	}
 	return m, nil
 }
+
+// Release marks the task's live session finished without touching the
+// process. It exists for the case Cancel doesn't cover: one long-lived
+// interactive session carries a task through several stages itself
+// (refinement, planning, implementation, review) instead of exiting so a
+// fresh `takos task agent` session can pick up each stage. The marker from
+// the first stage never gets a Finish() call, so ActiveSessionChecker
+// (move.go) keeps seeing it as running and refuses the final move to done —
+// SIGTERM would kill the very session asking to move on. Release lets that
+// session close its own marker and continue.
+func Release(taskDir string) (*Marker, error) {
+	m := Active(taskDir)
+	if m == nil {
+		return nil, fmt.Errorf("no running session")
+	}
+	Finish(taskDir, "user", m.Name, m.UUID, OutcomeFinished)
+	return m, nil
+}

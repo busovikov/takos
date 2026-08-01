@@ -23,6 +23,7 @@ func newTaskCmd() *cobra.Command {
 		newTaskAgentCmd(),
 		newTaskAgentExecCmd(),
 		newTaskCancelCmd(),
+		newTaskReleaseCmd(),
 		newTaskLogsCmd(),
 		newTaskReviewCmd(),
 		newTaskCommentCmd(),

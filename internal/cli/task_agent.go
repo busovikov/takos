@@ -216,6 +216,35 @@ func newTaskCancelCmd() *cobra.Command {
 	}
 }
 
+func newTaskReleaseCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "release T-0001",
+		Short: "Mark the task's own session finished without stopping it (unblocks move to done)",
+		Long: "For a session that carried a task through several stages itself instead of\n" +
+			"exiting between them (see `takos task agent`): the marker from its first\n" +
+			"stage never got a finished outcome, so a move to done is refused with\n" +
+			"\"an agent session is still running\". Release closes that marker — pid left\n" +
+			"running — so the same session can finish the move itself.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ws, err := openWS()
+			if err != nil {
+				return err
+			}
+			taskDir, err := ws.FindTaskDir(args[0])
+			if err != nil {
+				return err
+			}
+			m, err := session.Release(taskDir)
+			if err != nil {
+				return err
+			}
+			ok("session %s marked finished (pid %d left running)", m.Name, m.PID)
+			return nil
+		},
+	}
+}
+
 func newTaskLogsCmd() *cobra.Command {
 	var follow bool
 	cmd := &cobra.Command{

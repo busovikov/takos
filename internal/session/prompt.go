@@ -34,6 +34,24 @@ const cliCheatSheet = `takos — the only commands you need for this task (don't
   takos task logs {{task.id}} -f                           follow the task's current headless session until it ends
   takos task show {{task.id}} / history {{task.id}}        current state / audit trail`
 
+// stageDiscipline is appended to every prompt, headless or interactive.
+// workflow.yaml's `rules:` already spawn a fresh session per stage
+// automatically (e.g. context → planner → executor → reviewer) — carrying a
+// task through several stages by hand in one long-lived session instead
+// isn't a shortcut, it's a footgun: that session's own marker (sessions/*.json)
+// never gets a Finish() call until the whole conversation exits, so
+// ActiveSessionChecker (core/move.go) refuses the final move to done with
+// "an agent session is still running" — even though the session asking for
+// the move is the one it's complaining about.
+const stageDiscipline = `Stay inside your own stage: do this stage's work, move the task on, and
+stop there — let the workflow's rules (or a fresh "takos task agent") spawn
+the next stage's session rather than doing its work yourself in this same
+conversation. If you do end up carrying a task through several stages in
+one long-lived session, and a final move is refused with "an agent session
+is still running", that's this session's own marker still open — run
+"takos task release {{task.id}}" to close it (it does not stop you), then
+retry the move.`
+
 // modeNote tells the agent whether anyone is watching, since that changes
 // what "done with this stage" should do next.
 func modeNote(headless bool) string {
@@ -54,7 +72,7 @@ func Prompt(ws *core.Workspace, task *core.Task, taskDir, role, extra string, he
 			tpl = r.Prompt
 		}
 	}
-	full := tpl + "\n\n" + modeNote(headless) + "\n\n" + cliCheatSheet
+	full := tpl + "\n\n" + modeNote(headless) + "\n\n" + cliCheatSheet + "\n\n" + stageDiscipline
 	round := ""
 	if p, err := core.NewRoundPath(taskDir); err == nil {
 		round = filepath.Base(p)
