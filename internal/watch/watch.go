@@ -23,8 +23,10 @@ type Watcher struct {
 }
 
 // New watches the workspace's handler areas: root (workflow.yaml, new area
-// dirs), backlog/, sprints/ and every sprint/stage folder. Directories
-// created later (a new sprint) are added on the fly.
+// dirs), backlog/, sprints/ and every sprint/stage folder, plus tasks/ and
+// each task's own folder — so edits to a task's content (journal, session
+// markers, review rounds), not just handler moves, ping the board too.
+// Directories created later (a new sprint, a new task) are added on the fly.
 func New(root string, debounce time.Duration) (*Watcher, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -47,9 +49,10 @@ func (w *Watcher) Close() error {
 	return w.fsw.Close()
 }
 
-// addTree registers dir and its subdirectories up to the stage-folder depth
-// (root=0 → sprints=1 → sprint-12=2 → 1-refinement=3). Deeper levels are the
-// tasks' own files reached through symlinks — not our business here.
+// addTree registers dir and its subdirectories up to depth 3 — deep enough
+// to cover both the stage-folder path (root=0 → sprints=1 → sprint-12=2 →
+// 1-refinement=3) and the task-content path (root=0 → tasks=1 → T-0001=2 →
+// sessions|reviews=3).
 func (w *Watcher) addTree(dir string, depth int) {
 	w.fsw.Add(dir)
 	if depth >= 3 {
@@ -70,7 +73,7 @@ func (w *Watcher) addTree(dir string, depth int) {
 
 func watchedArea(name string) bool {
 	switch name {
-	case "backlog", "sprints", "archive":
+	case "backlog", "sprints", "archive", "tasks":
 		return true
 	}
 	return false

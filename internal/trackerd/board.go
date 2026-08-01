@@ -53,7 +53,7 @@ type Board struct {
 
 // buildBoard projects the workspace's active sprint into a Board.
 func buildBoard(name string, ws *core.Workspace) (*Board, error) {
-	b := &Board{Workspace: name}
+	b := &Board{Workspace: name, Tasks: []BoardTask{}, Backlog: []BoardTask{}}
 	for _, s := range ws.WF.Stages {
 		b.Stages = append(b.Stages, s.ID)
 	}

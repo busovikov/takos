@@ -72,7 +72,7 @@ func (in *instance) tryStart(ctx context.Context) {
 		in.setUnavailable(fmt.Sprintf("reconcile failed: %v", err))
 		return
 	}
-	w, err := watch.New(in.root, debounce)
+	w, err := watch.New(ws.Root, debounce)
 	if err != nil {
 		lock.Unlock()
 		in.setUnavailable(fmt.Sprintf("watcher: %v", err))
