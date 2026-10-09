@@ -113,6 +113,16 @@ export const moveTask = (ws: string, id: string, to: string) =>
     },
   )
 
+export const setAutomated = (ws: string, id: string, on: boolean) =>
+  request<{ id: string; on: boolean }>(
+    `/api/ws/${encodeURIComponent(ws)}/task/${encodeURIComponent(id)}/automate`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on }),
+    },
+  )
+
 export const triageFinding = (ws: string, id: string, item: string, status: string) =>
   request<{ ItemID: string; Status: string; DebtID: string; Verdict: string; Done: boolean; MovedTo: string }>(
     `/api/ws/${encodeURIComponent(ws)}/task/${encodeURIComponent(id)}/review/${encodeURIComponent(item)}`,

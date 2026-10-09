@@ -133,6 +133,41 @@ func runCheck(id, name string, remove bool) error {
 	return nil
 }
 
+func newTaskAutomateCmd() *cobra.Command {
+	var off bool
+	cmd := &cobra.Command{
+		Use:   "automate T-0001",
+		Short: "Turn a task's rule-driven automation on (default) or off",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAutomate(args[0], !off)
+		},
+	}
+	cmd.Flags().BoolVar(&off, "off", false, "pause automation instead")
+	return cmd
+}
+
+func runAutomate(id string, on bool) error {
+	ws, err := openWS()
+	if err != nil {
+		return err
+	}
+	taskDir, err := ws.FindTaskDir(id)
+	if err != nil {
+		return err
+	}
+	if err := core.SetAutomation(taskDir, on); err != nil {
+		return err
+	}
+	state := "active"
+	if !on {
+		state = "paused"
+	}
+	core.AppendHistory(taskDir, "user", "automation", state)
+	ok("%s: automation %s", id, state)
+	return nil
+}
+
 func newTaskEditCmd() *cobra.Command {
 	var plan bool
 	cmd := &cobra.Command{

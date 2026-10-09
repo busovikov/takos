@@ -147,6 +147,39 @@ func (d *Daemon) serveHTTP(addr string) (*http.Server, error) {
 		writeJSON(w, res)
 	})
 
+	mux.HandleFunc("POST /api/ws/{name}/task/{id}/automate", func(w http.ResponseWriter, r *http.Request) {
+		ws, ok := d.openWorkspace(r.PathValue("name"))
+		if !ok {
+			http.Error(w, "unknown workspace", http.StatusNotFound)
+			return
+		}
+		var body struct {
+			On bool `json:"on"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		taskDir, err := ws.FindTaskDir(r.PathValue("id"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err := core.SetAutomation(taskDir, body.On); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		state := "active"
+		if !body.On {
+			state = "paused"
+		}
+		core.AppendHistory(taskDir, "user", "automation", state)
+		writeJSON(w, struct {
+			ID string `json:"id"`
+			On bool   `json:"on"`
+		}{r.PathValue("id"), body.On})
+	})
+
 	mux.HandleFunc("POST /api/ws/{name}/task/{id}/review/{item}", func(w http.ResponseWriter, r *http.Request) {
 		ws, ok := d.openWorkspace(r.PathValue("name"))
 		if !ok {

@@ -62,3 +62,18 @@ func (t *Task) Save() error {
 	}
 	return fsstore.WriteFileAtomic(filepath.Join(t.Dir, TaskFile), doc, 0o644)
 }
+
+// SetAutomation turns a task's rule-driven automation on or off. The rules
+// engine's scanTask refuses to fire any rule for a task while it is paused.
+func SetAutomation(taskDir string, on bool) error {
+	task, err := LoadTask(taskDir)
+	if err != nil {
+		return err
+	}
+	if on {
+		task.Meta.Automation = "active"
+	} else {
+		task.Meta.Automation = "paused"
+	}
+	return task.Save()
+}

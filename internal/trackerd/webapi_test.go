@@ -170,6 +170,50 @@ func TestWebMoveMutation(t *testing.T) {
 	}
 }
 
+func TestWebAutomateMutation(t *testing.T) {
+	addr, _, task := startWebDaemon(t)
+
+	resp := postJSON(t, addr, "/api/ws/alpha/task/"+task.Meta.ID+"/automate",
+		map[string]bool{"on": false})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("automate off = %d", resp.StatusCode)
+	}
+
+	var card TaskCard
+	getJSON(t, addr, "/api/ws/alpha/task/"+task.Meta.ID, &card)
+	if !card.Paused {
+		t.Error("task card not paused after automate off")
+	}
+
+	var board Board
+	getJSON(t, addr, "/api/ws/alpha/board", &board)
+	found := false
+	for _, bt := range board.Tasks {
+		if bt.ID == task.Meta.ID {
+			found = true
+			if !bt.Paused {
+				t.Error("board task not paused after automate off")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("task missing from board")
+	}
+
+	resp2 := postJSON(t, addr, "/api/ws/alpha/task/"+task.Meta.ID+"/automate",
+		map[string]bool{"on": true})
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("automate on = %d", resp2.StatusCode)
+	}
+	var card2 TaskCard
+	getJSON(t, addr, "/api/ws/alpha/task/"+task.Meta.ID, &card2)
+	if card2.Paused {
+		t.Error("task card still paused after automate on")
+	}
+}
+
 func TestWebEventsSSE(t *testing.T) {
 	addr, ws, task := startWebDaemon(t)
 

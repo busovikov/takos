@@ -26,6 +26,7 @@ function TaskChip({
   activeSprint,
   onOpen,
   onMove,
+  onAutomate,
   busy,
 }: {
   task: BoardTask
@@ -33,6 +34,7 @@ function TaskChip({
   activeSprint?: string
   onOpen: (id: string) => void
   onMove: (id: string, to: string) => void
+  onAutomate: (id: string, on: boolean) => void
   busy: boolean
 }) {
   const idx = stages.indexOf(task.stage)
@@ -54,9 +56,16 @@ function TaskChip({
           </span>
         )}
         {task.paused && (
-          <span className="badge paused" title="automation paused">
+          <button
+            className="badge paused"
+            title="automation paused — click to resume"
+            onClick={e => {
+              e.stopPropagation()
+              onAutomate(task.id, true)
+            }}
+          >
             paused
-          </span>
+          </button>
         )}
         {!!task.openReviews && (
           <span className="badge open" title={`${task.openReviews} open review findings`}>
@@ -83,11 +92,13 @@ export function BoardView({
   board,
   onOpen,
   onMove,
+  onAutomate,
   busy,
 }: {
   board: Board
   onOpen: (id: string) => void
   onMove: (id: string, to: string) => void
+  onAutomate: (id: string, on: boolean) => void
   busy: boolean
 }) {
   const counts = new Map<string, number>()
@@ -109,7 +120,15 @@ export function BoardView({
           const col = board.stages.indexOf(t.stage)
           return (
             <div key={t.id} style={{ gridColumn: (col < 0 ? 0 : col) + 1, gridRow: r + 2 }}>
-              <TaskChip task={t} stages={board.stages} activeSprint={board.sprint} onOpen={onOpen} onMove={onMove} busy={busy} />
+              <TaskChip
+                task={t}
+                stages={board.stages}
+                activeSprint={board.sprint}
+                onOpen={onOpen}
+                onMove={onMove}
+                onAutomate={onAutomate}
+                busy={busy}
+              />
             </div>
           )
         })}
@@ -121,7 +140,16 @@ export function BoardView({
           <h2>Backlog <span className="count">{board.backlog.length}</span></h2>
           <div className="backlog-grid">
             {board.backlog.map(t => (
-              <TaskChip key={t.id} task={t} stages={board.stages} activeSprint={board.sprint} onOpen={onOpen} onMove={onMove} busy={busy} />
+              <TaskChip
+                key={t.id}
+                task={t}
+                stages={board.stages}
+                activeSprint={board.sprint}
+                onOpen={onOpen}
+                onMove={onMove}
+                onAutomate={onAutomate}
+                busy={busy}
+              />
             ))}
           </div>
         </section>

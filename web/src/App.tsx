@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getBoard, getTask, listWorkspaces, moveTask, triageFinding } from './api'
+import { getBoard, getTask, listWorkspaces, moveTask, setAutomated, triageFinding } from './api'
 import type { WorkspaceSummary } from './api'
 import { useLiveResource } from './hooks'
 import { BoardView } from './components/BoardView'
@@ -67,6 +67,24 @@ export default function App() {
     [ws, board, card, openTask],
   )
 
+  const onAutomate = useCallback(
+    async (id: string, on: boolean) => {
+      if (!ws) return
+      setBusy(true)
+      try {
+        const res = await setAutomated(ws, id, on)
+        setFlash({ kind: 'ok', text: `${res.id}: automation ${res.on ? 'on' : 'off'}` })
+        board.refresh()
+        if (openTask === id) card.refresh()
+      } catch (e: any) {
+        setFlash({ kind: 'err', text: String(e.message ?? e) })
+      } finally {
+        setBusy(false)
+      }
+    },
+    [ws, board, card, openTask],
+  )
+
   const onTriage = useCallback(
     async (item: string, status: string) => {
       if (!ws || !openTask) return
@@ -121,7 +139,9 @@ export default function App() {
         <div className="boardwrap">
           {board.error && <p className="error">{board.error}</p>}
           {!board.data && !board.error && <p className="empty">Loading…</p>}
-          {board.data && <BoardView board={board.data} onOpen={setOpenTask} onMove={onMove} busy={busy} />}
+          {board.data && (
+            <BoardView board={board.data} onOpen={setOpenTask} onMove={onMove} onAutomate={onAutomate} busy={busy} />
+          )}
         </div>
 
         {openTask && card.data && (
@@ -129,6 +149,7 @@ export default function App() {
             card={card.data}
             onClose={() => { setOpenTask(null); setCarousel(false) }}
             onOpenReview={() => setCarousel(true)}
+            onAutomate={onAutomate}
           />
         )}
       </main>

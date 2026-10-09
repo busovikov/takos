@@ -24,10 +24,12 @@ export function TaskCardPanel({
   card,
   onClose,
   onOpenReview,
+  onAutomate,
 }: {
   card: TaskCard
   onClose: () => void
   onOpenReview: () => void
+  onAutomate: (id: string, on: boolean) => void
 }) {
   const open = card.review?.items.filter(i => i.status === 'open').length ?? 0
 
@@ -38,7 +40,13 @@ export function TaskCardPanel({
           <span className={`prio p-${card.priority}`}>{card.priority}</span>
           <span className="tid">{card.id}</span>
           <span className="stage-pill">{card.stage}</span>
-          {card.paused && <span className="badge paused">paused</span>}
+          <button
+            className={`badge${card.paused ? ' paused' : ''}`}
+            onClick={() => onAutomate(card.id, !!card.paused)}
+            title={card.paused ? 'resume automation' : 'pause automation'}
+          >
+            {card.paused ? 'paused' : 'automated'}
+          </button>
         </div>
         <button className="close" onClick={onClose} title="close">
           ✕
