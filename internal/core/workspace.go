@@ -230,13 +230,15 @@ roles:
       other file.
 
 rules:
-  - id: context-on-planning
-    on: enter planning
+  - id: context-on-refinement
+    on: enter refinement
     spawn: { role: context }
-  - id: plan-after-context
-    on: session-finished
-    if: role == context && outcome == finished
+  - id: planner-on-planning
+    on: enter planning
     spawn: { role: planner }
+  - id: executor-on-implementation
+    on: enter implementation
+    spawn: { role: executor }
   - id: handover-on-review
     on: enter review
     spawn: { role: handover }

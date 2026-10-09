@@ -171,10 +171,7 @@ func TestFullCycleE2E(t *testing.T) {
 	e := New(ws, "e2e", nil, nil)
 	ctx := context.Background()
 
-	// refinement -> planning: context-on-planning fires automatically.
-	if _, err := ws.MoveTask(id, "planning", "user", ""); err != nil {
-		t.Fatal(err)
-	}
+	// created into refinement: context-on-refinement fires automatically.
 	e.Scan(ctx)
 	e.Wait()
 	task = reload(t, task.Dir)
@@ -182,9 +179,12 @@ func TestFullCycleE2E(t *testing.T) {
 		t.Fatalf("context role did not write task.md:\n%s", task.Body)
 	}
 
-	// plan-after-context would auto-spawn the planner too, but only on a
-	// later Scan — none happens between here and this manual entry, so it
-	// stays a deliberate, direct job in this test.
+	// refinement -> planning is a manual move; planner-on-planning would
+	// auto-spawn on the next Scan, but this test drives the planner as a
+	// deliberate, direct job instead.
+	if _, err := ws.MoveTask(id, "planning", "user", ""); err != nil {
+		t.Fatal(err)
+	}
 	planJob, err := runnerd.PlanJob(ws, id, runnerd.JobOpts{})
 	if err != nil {
 		t.Fatal(err)
@@ -299,7 +299,7 @@ func TestFullCycleE2E(t *testing.T) {
 			fired[strings.Fields(ev.Args)[0]]++
 		}
 	}
-	for _, rule := range []string{"context-on-planning", "handover-on-review", "review-after-handover"} {
+	for _, rule := range []string{"context-on-refinement", "handover-on-review", "review-after-handover"} {
 		if fired[rule] != 1 {
 			t.Errorf("rule %s fired %d times, want 1", rule, fired[rule])
 		}

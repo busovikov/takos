@@ -15,8 +15,10 @@ import (
 
 // TestAutomationChainThroughDaemon is the B4 integration test: the tracker
 // daemon alone (no runner daemon — jobs run in-process) drives the default
-// rule chain on a mock agent. Entering planning spawns the context role;
-// entering review spawns handover, whose finish spawns the reviewer.
+// rule chain on a mock agent. Creation into refinement spawns the context
+// role; entering planning spawns the planner; entering implementation spawns
+// the executor; entering review spawns handover, whose finish spawns the
+// reviewer.
 func TestAutomationChainThroughDaemon(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("TAKOS_HOME", home)
@@ -34,13 +36,10 @@ func TestAutomationChainThroughDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Created into refinement while no daemon was running — the startup scan
+	// must pick the pending trigger up.
 	task, _, err := ws.CreateTask("Automation chain", core.CreateOpts{})
 	if err != nil {
-		t.Fatal(err)
-	}
-	// Entered planning while no daemon was running — the startup scan must
-	// pick the pending trigger up.
-	if _, err := ws.MoveTask(task.Meta.ID, "planning", "user", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -83,8 +82,14 @@ func TestAutomationChainThroughDaemon(t *testing.T) {
 		}
 	}
 
-	// context-on-planning fires on the daemon's startup scan.
+	// context-on-refinement fires on the daemon's startup scan.
 	waitFor(t, 15*time.Second, sessionDone("context"))
+
+	// The user drives the task into planning, which spawns the planner.
+	if _, err := ws.MoveTask(task.Meta.ID, "planning", "user", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 15*time.Second, sessionDone("planner"))
 
 	// The user drives the task into review; the daemon notices the entered
 	// stage, runs handover, and chains the reviewer off its finish.
@@ -94,6 +99,7 @@ func TestAutomationChainThroughDaemon(t *testing.T) {
 	if _, err := ws.MoveTask(task.Meta.ID, "implementation", "user", ""); err != nil {
 		t.Fatal(err)
 	}
+	waitFor(t, 15*time.Second, sessionDone("executor"))
 	if _, err := ws.MoveTask(task.Meta.ID, "review", "user", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +114,7 @@ func TestAutomationChainThroughDaemon(t *testing.T) {
 			fired[strings.Fields(e.Args)[0]]++
 		}
 	}
-	for _, rule := range []string{"context-on-planning", "handover-on-review", "review-after-handover"} {
+	for _, rule := range []string{"context-on-refinement", "planner-on-planning", "executor-on-implementation", "handover-on-review", "review-after-handover"} {
 		if fired[rule] != 1 {
 			t.Errorf("rule %s fired %d times, want 1\nhistory: %v", rule, fired[rule], events)
 		}

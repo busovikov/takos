@@ -66,9 +66,6 @@ func hasRuleRecord(t *testing.T, taskDir, ruleID string) bool {
 
 func TestEnterRuleFiresExactlyOnce(t *testing.T) {
 	ws, task := newWS(t)
-	if _, err := ws.MoveTask(task.Meta.ID, "planning", "user", ""); err != nil {
-		t.Fatal(err)
-	}
 	spy := &spawnSpy{}
 	e := New(ws, "w1", nil, spy.fn)
 
@@ -80,13 +77,13 @@ func TestEnterRuleFiresExactlyOnce(t *testing.T) {
 	if spec.Role != "context" {
 		t.Errorf("role = %s, want context", spec.Role)
 	}
-	// The trigger event is the move (created=#0, move=#1) — the token pins
+	// The trigger event is the creation itself (created=#0) — the token pins
 	// workspace, task, rule and event, so runner-daemon retries are replays.
-	want := fmt.Sprintf("rule:w1:%s:context-on-planning:1", task.Meta.ID)
+	want := fmt.Sprintf("rule:w1:%s:context-on-refinement:0", task.Meta.ID)
 	if spec.ClientToken != want {
 		t.Errorf("token = %s, want %s", spec.ClientToken, want)
 	}
-	if !hasRuleRecord(t, task.Dir, "context-on-planning") {
+	if !hasRuleRecord(t, task.Dir, "context-on-refinement") {
 		t.Error("no ledger record after firing")
 	}
 	// Replay safety: further scans do not fire again.
@@ -94,6 +91,60 @@ func TestEnterRuleFiresExactlyOnce(t *testing.T) {
 	New(ws, "w1", nil, spy.fn).Scan(context.Background()) // fresh engine = daemon restart
 	if spy.count() != 1 {
 		t.Errorf("spawns after rescans = %d, want 1", spy.count())
+	}
+}
+
+func TestExecutorSpawnsOnEnterImplementation(t *testing.T) {
+	ws, task := newWS(t)
+	if _, err := ws.MoveTask(task.Meta.ID, "planning", "user", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.SetCheck(task.Dir, "plan-resolved"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ws.MoveTask(task.Meta.ID, "implementation", "user", ""); err != nil {
+		t.Fatal(err)
+	}
+	spy := &spawnSpy{}
+	e := New(ws, "w1", nil, spy.fn)
+
+	e.Scan(context.Background())
+	if spy.count() != 1 {
+		t.Fatalf("spawns = %d, want 1 (%v)", spy.count(), spy.specs)
+	}
+	if spec := spy.specs[0]; spec.Role != "executor" {
+		t.Errorf("role = %s, want executor", spec.Role)
+	}
+	if !hasRuleRecord(t, task.Dir, "executor-on-implementation") {
+		t.Error("no ledger record after firing")
+	}
+	e.Scan(context.Background())
+	if spy.count() != 1 {
+		t.Errorf("spawns after rescan = %d, want 1", spy.count())
+	}
+}
+
+func TestPausedAutomationBlocksSpawn(t *testing.T) {
+	ws, task := newWS(t)
+	if _, err := ws.MoveTask(task.Meta.ID, "planning", "user", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.SetCheck(task.Dir, "plan-resolved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.SetAutomation(task.Dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ws.MoveTask(task.Meta.ID, "implementation", "user", ""); err != nil {
+		t.Fatal(err)
+	}
+	spy := &spawnSpy{}
+	New(ws, "w1", nil, spy.fn).Scan(context.Background())
+	if spy.count() != 0 {
+		t.Fatalf("spawns while paused = %d, want 0 (%v)", spy.count(), spy.specs)
+	}
+	if hasRuleRecord(t, task.Dir, "executor-on-implementation") {
+		t.Error("ledger recorded a rule fire while automation was paused")
 	}
 }
 
@@ -111,8 +162,15 @@ func TestStaleEnterDoesNotFire(t *testing.T) {
 	}
 	spy := &spawnSpy{}
 	New(ws, "w1", nil, spy.fn).Scan(context.Background())
-	if spy.count() != 0 {
-		t.Errorf("stale enter planning fired: %+v", spy.specs)
+	// The stale "enter planning" must not fire the context role — only the
+	// legitimate "enter implementation" (executor) is expected here.
+	for _, spec := range spy.specs {
+		if spec.Role == "context" {
+			t.Errorf("stale enter planning fired: %+v", spy.specs)
+		}
+	}
+	if spy.count() != 1 || spy.specs[0].Role != "executor" {
+		t.Errorf("spawns = %+v, want one executor", spy.specs)
 	}
 }
 
@@ -191,7 +249,7 @@ func TestBusyTaskDefersSpawn(t *testing.T) {
 	if spy.count() != 0 {
 		t.Fatalf("fired while a session is live")
 	}
-	if hasRuleRecord(t, task.Dir, "context-on-planning") {
+	if hasRuleRecord(t, task.Dir, "planner-on-planning") {
 		t.Fatal("claimed the trigger while deferred — the retry is lost")
 	}
 
@@ -255,9 +313,6 @@ func TestInProcessSpawnFallback(t *testing.T) {
 	t.Setenv("TAKOS_HOME", t.TempDir()) // no runner daemon here
 	mockAgent(t, "echo 'context written'\nexit 0")
 	ws, task := newWS(t)
-	if _, err := ws.MoveTask(task.Meta.ID, "planning", "user", ""); err != nil {
-		t.Fatal(err)
-	}
 
 	e := New(ws, "w1", nil, nil)
 	e.Scan(context.Background())
